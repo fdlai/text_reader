@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   deleteDocumentAudio,
@@ -201,8 +201,11 @@ export default function Reader() {
     };
   }, []);
 
+  // The same function every render, so the panel doesn't re-add its
+  // listeners each time the page updates during playback.
+  const closePanel = useCallback(() => setPanel(null), [setPanel]);
   // Close the panel when leaving the article, so it isn't open on the next page.
-  useEffect(() => () => setPanel(null), [setPanel]);
+  useEffect(() => closePanel, [closePanel]);
 
   // What Space does right now: play/pause, or null if nothing can play yet.
   // Kept in a ref (refreshed after every render) so the key listener below
@@ -636,7 +639,7 @@ export default function Reader() {
         <PreferencesPanel
           // A new prefill reopens the panel on the Pronunciations tab.
           key={panel.prefill?.n ?? 0}
-          onClose={() => setPanel(null)}
+          onClose={closePanel}
           prefill={panel.prefill}
           voice={preset}
           onPronunciationsChange={() => setPollKey((k) => k + 1)}

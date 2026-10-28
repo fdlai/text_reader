@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import DisplayTab from "./DisplayTab";
 import PronunciationsTab from "./PronunciationsTab";
 
@@ -17,9 +17,35 @@ export default function PreferencesPanel({
   onPronunciationsChange,
 }) {
   const [tab, setTab] = useState(prefill ? "pronunciations" : "display");
+  const ref = useRef(null);
+
+  // Close when clicking outside the panel, or pressing Escape. Clicks on the
+  // player bar don't count, so playback can be controlled while the panel
+  // is open (and its ⚙ button can close the panel itself).
+  useEffect(() => {
+    function handlePointerDown(e) {
+      if (
+        !ref.current.contains(e.target) &&
+        !e.target.closest("[data-player-bar]")
+      ) {
+        onClose();
+      }
+    }
+    function handleKey(e) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [onClose]);
 
   return (
-    <aside className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm flex-col border-l border-gray-200 bg-white shadow-xl">
+    <aside
+      ref={ref}
+      className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm flex-col border-l border-gray-200 bg-white shadow-xl">
       <div className="flex items-center justify-between px-5 pt-5">
         <h2 className="text-xl font-semibold">Preferences</h2>
         <button

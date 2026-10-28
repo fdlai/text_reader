@@ -28,7 +28,10 @@ export default function PlayerBar() {
   const remaining = (timeline.total - position) / rate;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 border-t border-gray-200 bg-white">
+    <div
+      data-player-bar
+      className="fixed inset-x-0 bottom-0 border-t border-gray-200 bg-white"
+    >
       <div className="flex items-center gap-3 px-8 pt-3 text-xs text-gray-500 tabular-nums">
         <span className="w-14">{formatTime(elapsed)}</span>
         <input
