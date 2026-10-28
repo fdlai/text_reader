@@ -25,6 +25,9 @@ export function PlayerProvider({ children }) {
   const [index, setIndex] = useState(0);
   const [offset, setOffset] = useState(0); // seconds into the current chunk
   const [playing, setPlaying] = useState(false);
+  // True after the last chunk ends. Playback then stays at the end, so the
+  // page shows the article was finished, until listening starts again.
+  const [finished, setFinished] = useState(false);
   const [rate, setRate] = useState(1);
 
   useEffect(() => {
@@ -94,25 +97,30 @@ export function PlayerProvider({ children }) {
 
   useEffect(() => {
     latestRef.current = session
-      ? { documentId: session.documentId, index, offset }
+      ? { documentId: session.documentId, index, offset, finished }
       : null;
-  }, [session, index, offset]);
+  }, [session, index, offset, finished]);
 
+  // Returns a promise that settles once the save is done (or right away if
+  // there was nothing to save), so the Library can wait for it.
   const saveNow = useCallback(() => {
     clearTimeout(saveTimerRef.current);
     const p = latestRef.current;
     const last = lastSavedRef.current;
-    if (!p) return;
+    if (!p) return Promise.resolve();
     if (
       last &&
       last.documentId === p.documentId &&
       last.index === p.index &&
+      last.finished === p.finished &&
       Math.abs(last.offset - p.offset) < 0.5
     ) {
-      return;
+      return Promise.resolve();
     }
     lastSavedRef.current = p;
-    saveProgress(p.documentId, p.index, p.offset).catch(() => {});
+    return saveProgress(p.documentId, p.index, p.offset, p.finished).catch(
+      () => {},
+    );
   }, []);
 
   const scheduleSave = useCallback(() => {
@@ -150,6 +158,7 @@ export function PlayerProvider({ children }) {
       newRate,
       startOffset = 0,
       autoplay = true,
+      startFinished = false,
     ) => {
       pendingOffsetRef.current = startOffset || null;
       // The starting point is already saved (it usually came from the
@@ -158,11 +167,13 @@ export function PlayerProvider({ children }) {
         documentId: newSession.documentId,
         index: startIndex,
         offset: startOffset,
+        finished: startFinished,
       };
       setSession(newSession);
       setChunkAudio(newChunkAudio);
       setIndex(startIndex);
       setOffset(startOffset);
+      setFinished(startFinished);
       setRate(newRate);
       setPlaying(autoplay);
     },
@@ -222,6 +233,8 @@ export function PlayerProvider({ children }) {
       }
       setIndex(newIndex);
       setOffset(newOffset);
+      // Moving anywhere means the article is being listened to again.
+      setFinished(false);
       scheduleSave();
     },
     [session, chunkAudio, scheduleSave],
@@ -243,7 +256,11 @@ export function PlayerProvider({ children }) {
     [goTo],
   );
 
-  const toggle = useCallback(() => setPlaying((p) => !p), []);
+  // Play on a finished article starts it over.
+  const toggle = useCallback(() => {
+    if (finished) jumpTo(0, 0);
+    else setPlaying((p) => !p);
+  }, [finished, jumpTo]);
 
   // Changing speed also saves it as the voice's speed, so it's remembered
   // next time. Debounced like progress saves: several quick clicks on +
@@ -277,9 +294,9 @@ export function PlayerProvider({ children }) {
     if (index < session.chunks.length - 1) {
       goTo(index + 1, 0);
     } else {
-      // Finished: rewind, so the next listen starts from the beginning.
+      // Finished: stay at the end, so the page (and Library) shows it.
       setPlaying(false);
-      goTo(0, 0);
+      setFinished(true);
     }
   }
 
@@ -301,6 +318,7 @@ export function PlayerProvider({ children }) {
     index,
     offset,
     playing,
+    finished,
     waiting,
     rate,
     changeRate,
@@ -309,6 +327,7 @@ export function PlayerProvider({ children }) {
     position,
     start,
     close,
+    saveNow,
     updateChunkAudio,
     jumpTo,
     seekTo,

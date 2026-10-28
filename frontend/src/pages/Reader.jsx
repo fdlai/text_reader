@@ -162,6 +162,7 @@ export default function Reader() {
       speedFor(presetId, preset.speed),
       progress.offset_sec,
       false,
+      progress.finished,
     );
   }, [
     doc,
@@ -212,7 +213,7 @@ export default function Reader() {
     playPauseRef.current = sameSession
       ? player.toggle
       : canStart
-        ? () => play(progress.chunk_index, progress.offset_sec)
+        ? resume
         : null;
   });
 
@@ -295,6 +296,7 @@ export default function Reader() {
   if (!doc) return <p className="text-gray-500">Loading...</p>;
 
   const preset = voices.find((v) => v.id === presetId);
+  const finished = sameSession ? player.finished : progress?.finished;
   const readyChunks = status?.chunks.filter((c) => c.ready) ?? [];
   const allReady = status && readyChunks.length === status.chunks.length;
   // Finished audio plays without the engine, so this only matters when
@@ -315,7 +317,11 @@ export default function Reader() {
     const value = Number(e.target.value);
     // Keep the listening position when switching to another voice.
     if (sameSession) {
-      setProgress({ chunk_index: player.index, offset_sec: player.offset });
+      setProgress({
+        chunk_index: player.index,
+        offset_sec: player.offset,
+        finished: player.finished,
+      });
     }
     localStorage.setItem("voicePresetId", value);
     setStatus(null);
@@ -357,7 +363,11 @@ export default function Reader() {
     setError("");
     try {
       if (sameSession) {
-        setProgress({ chunk_index: player.index, offset_sec: player.offset });
+        setProgress({
+          chunk_index: player.index,
+          offset_sec: player.offset,
+          finished: player.finished,
+        });
         player.close();
       }
       // Cleared so the player isn't reloaded from the old status meanwhile.
@@ -417,8 +427,25 @@ export default function Reader() {
     );
   }
 
+  // Continues from the saved position, or starts over if it was finished.
+  function resume() {
+    if (progress.finished) play(0, 0);
+    else play(progress.chunk_index, progress.offset_sec);
+  }
+
+  const listenAgain = (
+    <button
+      onClick={() => play(0, 0)}
+      className="rounded bg-black px-4 py-2 text-white"
+    >
+      Listen again
+    </button>
+  );
+
   return (
-    <article>
+    // The extra bottom space keeps the floating button above the player bar
+    // from covering the last line.
+    <article className="pb-16">
       <div className="flex items-center justify-between">
         <Link to="/" className="text-sm text-gray-500 hover:underline">
           &larr; Library
@@ -455,7 +482,12 @@ export default function Reader() {
         </select>
 
         {isReady(0) &&
-          (sameSession ? (
+          (finished ? (
+            <>
+              <span className="text-sm text-gray-500">✓ Finished</span>
+              {listenAgain}
+            </>
+          ) : sameSession ? (
             <button
               onClick={player.toggle}
               className="rounded bg-black px-4 py-2 text-white"
@@ -464,7 +496,7 @@ export default function Reader() {
             </button>
           ) : (
             <button
-              onClick={() => play(progress.chunk_index, progress.offset_sec)}
+              onClick={resume}
               className="rounded bg-black px-4 py-2 text-white"
             >
               Play
@@ -611,13 +643,29 @@ export default function Reader() {
         />
       )}
 
-      {sameSession && !following && (
-        <button
-          onClick={backToCurrent}
-          className="fixed bottom-28 left-1/2 -translate-x-1/2 rounded-full bg-black px-4 py-2 text-sm text-white shadow-lg"
-        >
-          Back to current
-        </button>
+      {/* Floats above the player bar. Once finished, "Back to current"
+          would only lead to the last word, so Listen again takes its place,
+          visible wherever the page is scrolled. */}
+      {finished && isReady(0) ? (
+        <div className="fixed bottom-28 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black py-1.5 pr-1.5 pl-4 text-sm text-white shadow-lg">
+          ✓ Finished
+          <button
+            onClick={() => play(0, 0)}
+            className="rounded-full bg-white px-3 py-1 text-black"
+          >
+            Listen again
+          </button>
+        </div>
+      ) : (
+        sameSession &&
+        !following && (
+          <button
+            onClick={backToCurrent}
+            className="fixed bottom-28 left-1/2 -translate-x-1/2 rounded-full bg-black px-4 py-2 text-sm text-white shadow-lg"
+          >
+            Back to current
+          </button>
+        )
       )}
     </article>
   );

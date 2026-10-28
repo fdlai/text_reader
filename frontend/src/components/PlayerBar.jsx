@@ -9,6 +9,7 @@ export default function PlayerBar() {
     session,
     index,
     playing,
+    finished,
     waiting,
     rate,
     changeRate,
@@ -38,7 +39,7 @@ export default function PlayerBar() {
           value={position}
           onChange={(e) => seekTo(Number(e.target.value))}
           aria-label="Playback position"
-          className="flex-1 cursor-pointer accent-black"
+          className="flex-1 accent-black"
         />
         {/* "~" marks an estimate while some chunks have no audio yet. */}
         <span className="w-14 text-right">
@@ -52,9 +53,11 @@ export default function PlayerBar() {
         >
           <p className="truncate text-sm font-medium">{session.title}</p>
           <p className="text-xs text-gray-500">
-            {waiting
-              ? "Generating next section..."
-              : `Section ${index + 1} of ${session.chunks.length}`}
+            {finished
+              ? "Finished"
+              : waiting
+                ? "Generating next section..."
+                : `Section ${index + 1} of ${session.chunks.length}`}
           </p>
         </Link>
         <button

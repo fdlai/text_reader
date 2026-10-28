@@ -42,4 +42,24 @@ html[data-theme="paper"] {
     background-color: var(--color-white);
     color: var(--color-black);
   }
+  /* A dropdown's text follows the theme, but its open list would keep the
+     browser's white background, leaving light text on white in dark mode. */
+  select,
+  option {
+    background-color: var(--color-white);
+    color: var(--color-black);
+  }
+}
+
+/*
+ * Tailwind v4 leaves buttons and form controls with the plain arrow cursor.
+ * Everything clickable gets the pointing hand instead, except while
+ * disabled, so a disabled button doesn't look clickable.
+ */
+@layer base {
+  button:not(:disabled),
+  select:not(:disabled),
+  input:is([type="radio"], [type="checkbox"], [type="range"]):not(:disabled) {
+    cursor: pointer;
+  }
 }

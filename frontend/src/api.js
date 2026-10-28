@@ -38,9 +38,13 @@ export const deleteDocument = (id) =>
 export const getProgress = (id) => request(`/documents/${id}/progress`);
 
 // keepalive lets the request finish even if the page is being closed.
-export const saveProgress = (id, chunkIndex, offsetSec) =>
+export const saveProgress = (id, chunkIndex, offsetSec, finished) =>
   request(`/documents/${id}/progress`, {
-    ...json("PUT", { chunk_index: chunkIndex, offset_sec: offsetSec }),
+    ...json("PUT", {
+      chunk_index: chunkIndex,
+      offset_sec: offsetSec,
+      finished,
+    }),
     keepalive: true,
   });
 

@@ -36,6 +36,13 @@ class DocumentSummary(BaseModel):
     created_at: datetime
 
 
+# A Library entry: the document plus how far through it listening is.
+class LibraryItem(DocumentSummary):
+    finished: bool
+    fraction: float  # 0 to 1, how much has been listened to
+    seconds_left: float  # an estimate at normal speed
+
+
 class DocumentDetail(DocumentSummary):
     chunks: list[ChunkOut]
 
@@ -69,3 +76,4 @@ class Progress(BaseModel):
 
     chunk_index: int = Field(ge=0)
     offset_sec: float = Field(ge=0)
+    finished: bool = False

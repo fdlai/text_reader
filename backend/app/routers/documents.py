@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -6,13 +8,16 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_session
 from app.models import AudioFile, Chunk, Document, PlaybackProgress
-from app.schemas import DocumentCreate, DocumentDetail, DocumentSummary, Progress
+from app.schemas import DocumentCreate, DocumentDetail, LibraryItem, Progress
 from app.services.chunker import chunk_text
 from app.services.extractor import ExtractionError, extract_article
 from app.services.fetcher import FetchError, fetch_html
 from app.services.generation import cancel_generation, remove_files
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
+
+# Seconds of speech per character, used before a document has any audio.
+SECONDS_PER_CHAR = 0.065
 
 
 @router.post("", response_model=DocumentDetail, status_code=status.HTTP_201_CREATED)
@@ -37,12 +42,68 @@ async def create_document(
     return document
 
 
-@router.get("", response_model=list[DocumentSummary])
+@router.get("", response_model=list[LibraryItem])
 async def list_documents(session: AsyncSession = Depends(get_session)):
-    result = await session.scalars(
-        select(Document).order_by(Document.created_at.desc())
+    documents = await session.scalars(
+        select(Document)
+        .order_by(Document.created_at.desc())
+        .options(selectinload(Document.progress))
     )
-    return result.all()
+    # Each document's chunk lengths, in order.
+    chunk_chars: dict[int, list[int]] = defaultdict(list)
+    for document_id, chars in await session.execute(
+        select(Chunk.document_id, Chunk.char_count).order_by(
+            Chunk.document_id, Chunk.index
+        )
+    ):
+        chunk_chars[document_id].append(chars)
+    # Each document's speaking pace, from the audio made for it so far (any
+    # voice), like the player's estimate for chunks without audio.
+    pace = dict(
+        (
+            await session.execute(
+                select(
+                    Chunk.document_id,
+                    func.sum(AudioFile.duration_sec) / func.sum(Chunk.char_count),
+                )
+                .join(AudioFile, AudioFile.chunk_id == Chunk.id)
+                .where(AudioFile.duration_sec.is_not(None))
+                .group_by(Chunk.document_id)
+            )
+        ).all()
+    )
+    return [
+        _library_item(d, chunk_chars[d.id], pace.get(d.id, SECONDS_PER_CHAR))
+        for d in documents
+    ]
+
+
+def _library_item(
+    document: Document, chunk_chars: list[int], seconds_per_char: float
+) -> LibraryItem:
+    total = sum(chunk_chars)
+    progress = document.progress
+    if progress is None:
+        done = 0
+    elif progress.finished:
+        done = total
+    else:
+        # The chunks before the current one, plus an estimate of how much of
+        # the current one has been read, from the time into its audio.
+        index = min(progress.chunk_index, len(chunk_chars))
+        current = chunk_chars[index] if index < len(chunk_chars) else 0
+        done = sum(chunk_chars[:index]) + min(
+            current, progress.offset_sec / seconds_per_char
+        )
+    return LibraryItem(
+        id=document.id,
+        title=document.title,
+        source_url=document.source_url,
+        created_at=document.created_at,
+        finished=bool(progress and progress.finished),
+        fraction=done / total if total else 0,
+        seconds_left=(total - done) * seconds_per_char,
+    )
 
 
 @router.get("/{document_id}", response_model=DocumentDetail)

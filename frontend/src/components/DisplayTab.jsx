@@ -73,7 +73,7 @@ export default function DisplayTab() {
           max={60}
           value={prefs.font_size}
           onChange={(e) => update({ font_size: Number(e.target.value) })}
-          className="w-full cursor-pointer accent-black"
+          className="w-full accent-black"
         />
       </Section>
 

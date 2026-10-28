@@ -150,6 +150,8 @@ class PlaybackProgress(Base):
     )
     chunk_index: Mapped[int] = mapped_column(Integer, default=0)
     offset_sec: Mapped[float] = mapped_column(Float, default=0.0)
+    # True once the end was reached. Cleared when listening starts again.
+    finished: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createDocument, deleteDocument, listDocuments } from "../api";
+import ListeningStatus from "../components/ListeningStatus";
 import { usePlayer } from "../context/PlayerContext";
 
 export default function Library() {
@@ -10,13 +11,17 @@ export default function Library() {
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const player = usePlayer();
+  const { saveNow } = player;
 
+  // The position of whatever is playing is saved first, so its progress
+  // here is up to date.
   useEffect(() => {
-    listDocuments()
+    saveNow()
+      .then(listDocuments)
       .then(setDocuments)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [saveNow]);
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -24,8 +29,9 @@ export default function Library() {
     setAdding(true);
     setError("");
     try {
-      const doc = await createDocument(url.trim());
-      setDocuments((docs) => [doc, ...docs]);
+      await createDocument(url.trim());
+      // Reloaded rather than added, since the list includes each one's length.
+      setDocuments(await listDocuments());
       setUrl("");
     } catch (err) {
       setError(err.message);
@@ -90,6 +96,11 @@ export default function Library() {
             <Link to={`/documents/${doc.id}`} className="min-w-0 flex-1">
               <p className="truncate font-medium">{doc.title}</p>
               <p className="truncate text-sm text-gray-500">{doc.source_url}</p>
+              <ListeningStatus
+                finished={doc.finished}
+                fraction={doc.fraction}
+                secondsLeft={doc.seconds_left}
+              />
             </Link>
             <button
               onClick={() => handleDelete(doc)}

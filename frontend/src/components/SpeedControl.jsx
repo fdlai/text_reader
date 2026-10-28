@@ -105,7 +105,7 @@ export default function SpeedControl({ rate, onChange }) {
             value={rate}
             onChange={(e) => onChange(clamp(Number(e.target.value)))}
             aria-label="Speed slider"
-            className="w-full cursor-pointer accent-black"
+            className="w-full accent-black"
           />
           <div className="flex justify-between text-xs text-gray-400">
             <span>{MIN}x</span>
