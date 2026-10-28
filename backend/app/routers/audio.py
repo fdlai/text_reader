@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +9,13 @@ from app.config import settings
 from app.database import get_session
 from app.models import AudioFile, Chunk, Document, VoicePreset
 from app.schemas_audio import ChunkAudioStatus, GenerateIn, GenerationStatus
-from app.services.generation import jobs, remove_files, start_generation
+from app.services.generation import (
+    cancel_generation,
+    jobs,
+    queue_position,
+    remove_files,
+    start_generation,
+)
 from app.services.pronunciation import Lexicon, load_lexicon
 from app.services.tts import model_name
 
@@ -59,6 +65,7 @@ async def _build_status(
     job = jobs.get((document_id, preset.id), {})
     return GenerationStatus(
         generating=job.get("running", False),
+        queue_position=queue_position(document_id, preset.id),
         error=job.get("error"),
         chunks=[
             ChunkAudioStatus(
@@ -85,7 +92,7 @@ async def generate(
     if preset.engine == "openai" and not settings.openai_api_key:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "OPENAI_API_KEY is not set.")
 
-    start_generation(document_id, preset.id)
+    start_generation(document_id, preset.id, front=body.front)
     return await _build_status(session, document_id, preset)
 
 
@@ -122,6 +129,30 @@ async def regenerate_outdated(
 
     start_generation(document_id, preset.id)
     return await _build_status(session, document_id, preset)
+
+
+@router.delete("/documents/{document_id}/audio", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_audio(
+    document_id: int, voice_preset_id: int, session: AsyncSession = Depends(get_session)
+):
+    """Cancels generation of a document with a voice and deletes the audio
+    already made with it. Other voices' audio and the document are kept."""
+    if await session.get(Document, document_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
+    preset = await _get_preset(session, voice_preset_id)
+    await cancel_generation(document_id=document_id, preset_id=preset.id)
+    audio = (
+        await session.scalars(
+            select(AudioFile)
+            .join(Chunk, Chunk.id == AudioFile.chunk_id)
+            .where(Chunk.document_id == document_id, AudioFile.voice_preset_id == preset.id)
+        )
+    ).all()
+    for a in audio:
+        await session.delete(a)
+    await session.commit()
+    remove_files([a.file_path for a in audio])
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/documents/{document_id}/audio-status", response_model=GenerationStatus)

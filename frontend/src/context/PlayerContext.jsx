@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { chunkAudioUrl, saveProgress } from "../api";
+import { chunkAudioUrl, saveProgress, updateVoiceSpeed } from "../api";
 import { buildTimeline, fromPosition, toPosition } from "../timeline";
 
 const PlayerContext = createContext(null);
@@ -169,12 +169,39 @@ export function PlayerProvider({ children }) {
     [],
   );
 
-  const updateChunkAudio = useCallback((documentId, presetId, newChunkAudio) => {
-    const s = sessionRef.current;
-    if (s && s.documentId === documentId && s.presetId === presetId) {
-      setChunkAudio(newChunkAudio);
-    }
-  }, []);
+  // Stops and unloads the player, e.g. when its audio is being deleted. The
+  // position is saved first, so listening can resume after regenerating,
+  // unless save is false (e.g. the whole document is being deleted).
+  const close = useCallback(
+    (save = true) => {
+      if (save) {
+        saveNow();
+      } else {
+        clearTimeout(saveTimerRef.current);
+        latestRef.current = null;
+      }
+      const audio = audioRef.current;
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.removeAttribute("data-src");
+      audio.load();
+      pendingOffsetRef.current = null;
+      setPlaying(false);
+      setSession(null);
+      setChunkAudio({});
+    },
+    [saveNow],
+  );
+
+  const updateChunkAudio = useCallback(
+    (documentId, presetId, newChunkAudio) => {
+      const s = sessionRef.current;
+      if (s && s.documentId === documentId && s.presetId === presetId) {
+        setChunkAudio(newChunkAudio);
+      }
+    },
+    [],
+  );
 
   // Moves to a point inside a chunk. If that chunk's audio is already
   // loaded, seek directly; otherwise seek once it loads.
@@ -218,6 +245,29 @@ export function PlayerProvider({ children }) {
 
   const toggle = useCallback(() => setPlaying((p) => !p), []);
 
+  // Changing speed also saves it as the voice's speed, so it's remembered
+  // next time. Debounced like progress saves: several quick clicks on +
+  // send one request.
+  const speedTimerRef = useRef(null);
+  // { [presetId]: speed } changed in this visit. Pages loaded the voice list
+  // earlier and may have older speeds, so they check here first (speedFor).
+  const changedSpeedsRef = useRef({});
+  const speedFor = useCallback(
+    (presetId, savedSpeed) => changedSpeedsRef.current[presetId] ?? savedSpeed,
+    [],
+  );
+  const changeRate = useCallback((newRate) => {
+    setRate(newRate);
+    const presetId = sessionRef.current?.presetId;
+    if (!presetId) return;
+    changedSpeedsRef.current[presetId] = newRate;
+    clearTimeout(speedTimerRef.current);
+    speedTimerRef.current = setTimeout(
+      () => updateVoiceSpeed(presetId, newRate).catch(() => {}),
+      1000,
+    );
+  }, []);
+
   const skip = useCallback(
     (seconds) => seekTo(position + seconds),
     [seekTo, position],
@@ -253,10 +303,12 @@ export function PlayerProvider({ children }) {
     playing,
     waiting,
     rate,
-    setRate,
+    changeRate,
+    speedFor,
     timeline,
     position,
     start,
+    close,
     updateChunkAudio,
     jumpTo,
     seekTo,

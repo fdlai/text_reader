@@ -54,16 +54,43 @@ export const createVoice = (voice) =>
 export const updateVoice = (id, voice) =>
   request(`/voice-presets/${id}`, json("PUT", voice));
 
+export const updateVoiceSpeed = (id, speed) =>
+  request(`/voice-presets/${id}/speed`, json("PATCH", { speed }));
+
 export const deleteVoice = (id) =>
   request(`/voice-presets/${id}`, { method: "DELETE" });
 
 export const previewVoice = (voice) =>
   request("/voice-presets/preview", json("POST", voice), (r) => r.blob());
 
-export const generateAudio = (documentId, voicePresetId) =>
+export const getPreferences = () => request("/preferences");
+
+export const savePreferences = (prefs) =>
+  request("/preferences", json("PUT", prefs));
+
+export const getEngines = () => request("/engines");
+
+export const listCustomVoices = () => request("/custom-voices");
+
+// Returns a WAV sample of a new voice; nothing is saved until createCustomVoice.
+export const designVoice = (description) =>
+  request("/custom-voices/design", json("POST", { description }), (r) =>
+    r.blob(),
+  );
+
+export const createCustomVoice = (voice) =>
+  request("/custom-voices", json("POST", voice));
+
+export const deleteCustomVoice = (id) =>
+  request(`/custom-voices/${id}`, { method: "DELETE" });
+
+export const customVoiceSampleUrl = (id) => `/api/custom-voices/${id}/sample`;
+
+// Queues generation; with front=true the job goes ahead of other documents.
+export const generateAudio = (documentId, voicePresetId, front = false) =>
   request(
     `/documents/${documentId}/generate`,
-    json("POST", { voice_preset_id: voicePresetId }),
+    json("POST", { voice_preset_id: voicePresetId, front }),
   );
 
 export const getAudioStatus = (documentId, voicePresetId) =>
@@ -75,6 +102,12 @@ export const getAudioStatus = (documentId, voicePresetId) =>
 // audio is regenerated, so the browser doesn't play its cached old copy.
 export const chunkAudioUrl = (chunkId, voicePresetId, audioId) =>
   `/api/chunks/${chunkId}/audio?voice_preset_id=${voicePresetId}&v=${audioId}`;
+
+// Cancels generation for this document and voice, and deletes its audio.
+export const deleteDocumentAudio = (documentId, voicePresetId) =>
+  request(`/documents/${documentId}/audio?voice_preset_id=${voicePresetId}`, {
+    method: "DELETE",
+  });
 
 export const regenerateOutdated = (documentId, voicePresetId) =>
   request(

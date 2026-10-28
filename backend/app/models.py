@@ -69,6 +69,20 @@ class VoicePreset(Base):
     )
 
 
+class CustomVoice(Base):
+    """A voice designed from a description. Its sample clip is stored at
+    storage/voices/{id}.wav, and Qwen reads text in the voice of that clip."""
+
+    __tablename__ = "custom_voices"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class AudioFile(Base):
     __tablename__ = "audio_files"
     __table_args__ = (UniqueConstraint("chunk_id", "voice_preset_id", "model"),)
@@ -108,6 +122,23 @@ class Pronunciation(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, server_default="true")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class Preference(Base):
+    """The user's settings (theme, font, ...) as one JSON object.
+
+    There's a single row for now. With user accounts, each user would get
+    their own row. Defaults live in schemas.Preferences, so adding a
+    setting needs no migration.
+    """
+
+    __tablename__ = "preferences"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
 

@@ -4,16 +4,19 @@ import re
 # OpenAI TTS accepts 4096 characters per request, but gpt-4o-mini-tts often
 # cuts audio short on long inputs. Smaller chunks also start playing sooner.
 MAX_CHARS = 1500
-# The first chunk is kept short so its audio is ready within seconds. Each
-# following chunk may be twice as long (up to MAX_CHARS), so it finishes
-# generating before the chunks ahead of it finish playing.
+# The first chunk is kept short so its audio is ready soon. Each following
+# chunk may be a little longer (up to MAX_CHARS). Growth is gentle because
+# the next chunk has to finish generating while the current one plays: Qwen
+# generates at about 0.75x real time, so a chunk 1.25x as long takes about
+# as long to make as the current one takes to play.
 FIRST_MAX_CHARS = 300
+GROWTH = 1.25
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
 def _limit(chunk_index: int) -> int:
-    return min(MAX_CHARS, FIRST_MAX_CHARS * 2**chunk_index)
+    return min(MAX_CHARS, int(FIRST_MAX_CHARS * GROWTH**chunk_index))
 
 
 def _split_long(paragraph: str, limit: int) -> list[str]:

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createDocument, deleteDocument, listDocuments } from "../api";
+import { usePlayer } from "../context/PlayerContext";
 
 export default function Library() {
   const [documents, setDocuments] = useState([]);
@@ -8,6 +9,7 @@ export default function Library() {
   const [error, setError] = useState("");
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
+  const player = usePlayer();
 
   useEffect(() => {
     listDocuments()
@@ -32,10 +34,20 @@ export default function Library() {
     }
   }
 
-  async function handleDelete(id) {
+  async function handleDelete(doc) {
+    if (
+      !confirm(
+        `Delete "${doc.title}"? Its audio for every voice and your listening position will be deleted too.`,
+      )
+    )
+      return;
+    setError("");
     try {
-      await deleteDocument(id);
-      setDocuments((docs) => docs.filter((d) => d.id !== id));
+      // Its audio is about to disappear, so stop it if it's playing. No
+      // point saving the position of a deleted article.
+      if (player.session?.documentId === doc.id) player.close(false);
+      await deleteDocument(doc.id);
+      setDocuments((docs) => docs.filter((d) => d.id !== doc.id));
     } catch (err) {
       setError(err.message);
     }
@@ -80,7 +92,7 @@ export default function Library() {
               <p className="truncate text-sm text-gray-500">{doc.source_url}</p>
             </Link>
             <button
-              onClick={() => handleDelete(doc.id)}
+              onClick={() => handleDelete(doc)}
               className="text-sm text-gray-500 hover:text-red-600"
             >
               Delete

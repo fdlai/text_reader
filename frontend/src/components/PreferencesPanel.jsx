@@ -1,18 +1,22 @@
 import { useState } from "react";
+import DisplayTab from "./DisplayTab";
 import PronunciationsTab from "./PronunciationsTab";
 
-// More tabs (e.g. Display: font, size, theme) can be added here later.
-const TABS = [{ id: "pronunciations", label: "Pronunciations" }];
+const TABS = [
+  { id: "display", label: "Display" },
+  { id: "pronunciations", label: "Pronunciations" },
+];
 
 // A panel that slides over the right side of the reader, so preferences can
-// be changed while listening.
+// be changed while listening. "Fix pronunciation" opens it with a prefill,
+// which starts it on the Pronunciations tab.
 export default function PreferencesPanel({
   onClose,
   prefill,
   voice,
   onPronunciationsChange,
 }) {
-  const [tab, setTab] = useState("pronunciations");
+  const [tab, setTab] = useState(prefill ? "pronunciations" : "display");
 
   return (
     <aside className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm flex-col border-l border-gray-200 bg-white shadow-xl">
@@ -44,6 +48,7 @@ export default function PreferencesPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-5">
+        {tab === "display" && <DisplayTab />}
         {tab === "pronunciations" && (
           <PronunciationsTab
             key={prefill?.n ?? 0}

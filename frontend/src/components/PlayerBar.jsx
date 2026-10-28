@@ -1,8 +1,8 @@
-import { Link } from "react-router-dom";
+import { Link, useMatch } from "react-router-dom";
 import { usePlayer } from "../context/PlayerContext";
+import { usePreferences } from "../context/preferences";
 import { formatTime } from "../timeline";
-
-const RATES = [0.75, 1, 1.25, 1.5, 1.75, 2];
+import SpeedControl from "./SpeedControl";
 
 export default function PlayerBar() {
   const {
@@ -11,13 +11,15 @@ export default function PlayerBar() {
     playing,
     waiting,
     rate,
-    setRate,
+    changeRate,
     timeline,
     position,
     seekTo,
     toggle,
     skip,
   } = usePlayer();
+  const { togglePanel } = usePreferences();
+  const reading = useMatch("/documents/:id");
   if (!session) return null;
 
   // Times are shown in real time, so at 2x a 10-minute document shows 5:00.
@@ -73,17 +75,18 @@ export default function PlayerBar() {
         >
           +15s
         </button>
-        <select
-          value={rate}
-          onChange={(e) => setRate(Number(e.target.value))}
-          className="rounded border border-gray-300 px-1 py-1 text-sm"
-        >
-          {RATES.map((r) => (
-            <option key={r} value={r}>
-              {r}x
-            </option>
-          ))}
-        </select>
+        <SpeedControl rate={rate} onChange={changeRate} />
+        {/* The Preferences panel belongs to the article page. */}
+        {reading && (
+          <button
+            onClick={togglePanel}
+            title="Preferences (P)"
+            aria-label="Preferences"
+            className="text-lg text-gray-600 hover:text-black"
+          >
+            ⚙
+          </button>
+        )}
       </div>
     </div>
   );

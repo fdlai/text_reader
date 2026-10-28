@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
+  deleteDocumentAudio,
   generateAudio,
   getAudioStatus,
   getDocument,
@@ -9,10 +10,19 @@ import {
   regenerateOutdated,
 } from "../api";
 import ChunkText from "../components/ChunkText";
+import EngineNotice from "../components/EngineNotice";
 import PreferencesPanel from "../components/PreferencesPanel";
 import { usePlayer } from "../context/PlayerContext";
+import {
+  FONTS,
+  HIGHLIGHT_COLORS,
+  usePreferences,
+} from "../context/preferences";
+import { ENGINE_TAGS } from "../engines";
+import { useEngines } from "../useEngines";
 import { chunkLength, wordIndexAt } from "../timeline";
 
+// Space isn't included: on this page it plays and pauses (see shortcuts).
 const SCROLL_KEYS = new Set([
   "ArrowUp",
   "ArrowDown",
@@ -20,7 +30,6 @@ const SCROLL_KEYS = new Set([
   "PageDown",
   "Home",
   "End",
-  " ",
 ]);
 
 // While following, the line being read is kept between these fractions of
@@ -69,6 +78,8 @@ function readyAudio(status) {
 export default function Reader() {
   const documentId = Number(useParams().id);
   const player = usePlayer();
+  const { prefs, panel, setPanel, togglePanel } = usePreferences();
+  const engines = useEngines();
   const { updateChunkAudio } = player;
   const [doc, setDoc] = useState(null);
   const [voices, setVoices] = useState([]);
@@ -83,9 +94,9 @@ export default function Reader() {
   const [following, setFollowing] = useState(true);
   // { chunkIndex, wordIndex, text, top, left } while text is selected.
   const [selectionPopup, setSelectionPopup] = useState(null);
-  const [prefsOpen, setPrefsOpen] = useState(false);
-  // { word, n } to fill in on the Pronunciations tab ("Fix pronunciation").
-  const [pronunciationPrefill, setPronunciationPrefill] = useState(null);
+  // Counts "Fix pronunciation" prefills, so fixing the same word twice still
+  // starts fresh.
+  const prefillCountRef = useRef(0);
   const chunkRefs = useRef({});
   const textRef = useRef(null);
 
@@ -138,7 +149,7 @@ export default function Reader() {
   // On opening a document, load it into the player paused at the saved
   // position, so the progress bar shows where listening left off. Skipped
   // if something is playing, so opening a page never interrupts it.
-  const { start } = player;
+  const { start, speedFor } = player;
   useEffect(() => {
     const preset = voices.find((v) => v.id === presetId);
     const hasAudio = status?.chunks.some((c) => c.ready);
@@ -148,7 +159,7 @@ export default function Reader() {
       playerSession(doc, presetId),
       readyAudio(status),
       progress.chunk_index,
-      preset.speed,
+      speedFor(presetId, preset.speed),
       progress.offset_sec,
       false,
     );
@@ -161,6 +172,7 @@ export default function Reader() {
     player.playing,
     sameSession,
     start,
+    speedFor,
   ]);
 
   // Scrolling by hand stops following. Only user input is listened for, so
@@ -188,6 +200,45 @@ export default function Reader() {
     };
   }, []);
 
+  // Close the panel when leaving the article, so it isn't open on the next page.
+  useEffect(() => () => setPanel(null), [setPanel]);
+
+  // What Space does right now: play/pause, or null if nothing can play yet.
+  // Kept in a ref (refreshed after every render) so the key listener below
+  // is set up once but always sees the current state.
+  const playPauseRef = useRef(null);
+  useEffect(() => {
+    const canStart = doc && progress && status?.chunks[0]?.ready;
+    playPauseRef.current = sameSession
+      ? player.toggle
+      : canStart
+        ? () => play(progress.chunk_index, progress.offset_sec)
+        : null;
+  });
+
+  // Keyboard shortcuts: P opens/closes Preferences, Space plays/pauses.
+  // Ignored while typing in a box. Space is also left alone on a focused
+  // button (the browser uses it to press that button), and when nothing can
+  // play, so it still scrolls the page then.
+  useEffect(() => {
+    function handleShortcut(e) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.target.closest("input, select, textarea, [contenteditable]"))
+        return;
+      if (e.key === "p" || e.key === "P") {
+        if (!e.repeat) togglePanel();
+        return;
+      }
+      const playPause = playPauseRef.current;
+      if (e.key === " " && playPause && !e.target.closest("button")) {
+        e.preventDefault(); // otherwise Space would also scroll the page
+        if (!e.repeat) playPause();
+      }
+    }
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  }, [togglePanel]);
+
   // "Play from here": when a selection is finished inside the text, find its
   // first word and show a button above the selection.
   useEffect(() => {
@@ -206,11 +257,7 @@ export default function Reader() {
         setSelectionPopup({
           chunkIndex: Number(first.closest("[data-chunk]").dataset.chunk),
           wordIndex: Number(first.dataset.word),
-          text: selection
-            .toString()
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 100),
+          text: selection.toString().replace(/\s+/g, " ").trim().slice(0, 100),
           // Page coordinates, so the button stays with the text on scroll.
           top: rect.top + window.scrollY,
           left: rect.left + rect.width / 2 + window.scrollX,
@@ -250,6 +297,10 @@ export default function Reader() {
   const preset = voices.find((v) => v.id === presetId);
   const readyChunks = status?.chunks.filter((c) => c.ready) ?? [];
   const allReady = status && readyChunks.length === status.chunks.length;
+  // Finished audio plays without the engine, so this only matters when
+  // something still needs generating.
+  const engineStatus = engines.engines?.[preset?.engine];
+  const canGenerate = engineStatus?.available !== false;
   const isReady = (index) => status?.chunks[index]?.ready;
   const outdatedCount = status?.chunks.filter((c) => c.outdated).length ?? 0;
   // Audio made before word timings existed (or whose timings failed) has
@@ -271,10 +322,10 @@ export default function Reader() {
     setPresetId(value);
   }
 
-  async function handleGenerate() {
+  async function handleGenerate(front = false) {
     setError("");
     try {
-      await generateAudio(documentId, presetId);
+      await generateAudio(documentId, presetId, front);
       setPollKey((k) => k + 1);
     } catch (e) {
       setError(e.message);
@@ -290,6 +341,32 @@ export default function Reader() {
       top: y - window.innerHeight * FOLLOW_AT,
       behavior: "smooth",
     });
+  }
+
+  // Cancels generation (if any) and deletes this voice's audio for this
+  // document. Other voices' audio and the saved position are kept.
+  async function handleDeleteAudio() {
+    const n = readyChunks.length;
+    const sections = `${n} ${n === 1 ? "section" : "sections"}`;
+    const message = status.generating
+      ? n > 0
+        ? `Cancel generation and delete the ${sections} already made with "${preset.name}"?`
+        : `Cancel generating audio with "${preset.name}"?`
+      : `Delete all audio for this article made with "${preset.name}"?`;
+    if (!confirm(message)) return;
+    setError("");
+    try {
+      if (sameSession) {
+        setProgress({ chunk_index: player.index, offset_sec: player.offset });
+        player.close();
+      }
+      // Cleared so the player isn't reloaded from the old status meanwhile.
+      setStatus(null);
+      await deleteDocumentAudio(documentId, presetId);
+      setPollKey((k) => k + 1);
+    } catch (e) {
+      setError(e.message);
+    }
   }
 
   async function handleRegenerateOutdated() {
@@ -308,9 +385,8 @@ export default function Reader() {
       /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu,
       "",
     );
-    // n counts prefills, so fixing the same word twice still starts fresh.
-    setPronunciationPrefill((p) => ({ word, n: (p?.n ?? 0) + 1 }));
-    setPrefsOpen(true);
+    prefillCountRef.current += 1;
+    setPanel({ prefill: { word, n: prefillCountRef.current } });
     window.getSelection().removeAllRanges();
     setSelectionPopup(null);
   }
@@ -326,6 +402,8 @@ export default function Reader() {
 
   function play(index, offset = 0) {
     setFollowing(true);
+    // What's being listened to should generate before other documents.
+    if (status?.queue_position > 0) handleGenerate(true);
     if (sameSession) {
       player.jumpTo(index, offset);
       return;
@@ -334,7 +412,7 @@ export default function Reader() {
       playerSession(doc, presetId),
       readyAudio(status),
       index,
-      preset.speed,
+      speedFor(presetId, preset.speed),
       offset,
     );
   }
@@ -346,7 +424,8 @@ export default function Reader() {
           &larr; Library
         </Link>
         <button
-          onClick={() => setPrefsOpen(true)}
+          onClick={() => setPanel({ prefill: null })}
+          title="Preferences (P)"
           className="text-sm text-gray-500 hover:text-black"
         >
           ⚙ Preferences
@@ -370,7 +449,7 @@ export default function Reader() {
         >
           {voices.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.name} ({v.engine === "kokoro" ? "Free" : "OpenAI"})
+              {v.name} ({ENGINE_TAGS[v.engine]})
             </option>
           ))}
         </select>
@@ -392,9 +471,9 @@ export default function Reader() {
             </button>
           ))}
 
-        {status && !allReady && !status.generating && (
+        {status && !allReady && !status.generating && canGenerate && (
           <button
-            onClick={handleGenerate}
+            onClick={() => handleGenerate()}
             className="rounded border border-gray-300 px-4 py-2"
           >
             {readyChunks.length ? "Generate remaining audio" : "Generate audio"}
@@ -403,9 +482,29 @@ export default function Reader() {
 
         {status?.generating && (
           <span className="text-sm text-gray-500">
-            Generating audio: {readyChunks.length} of {status.chunks.length}{" "}
-            sections ready
+            {status.queue_position > 0
+              ? `Queued: ${status.queue_position} ${status.queue_position === 1 ? "document" : "documents"} ahead. `
+              : "Generating audio: "}
+            {readyChunks.length} of {status.chunks.length} sections ready
           </span>
+        )}
+
+        {status?.queue_position > 0 && (
+          <button
+            onClick={() => handleGenerate(true)}
+            className="text-sm font-medium underline hover:text-black"
+          >
+            Generate this next
+          </button>
+        )}
+
+        {(status?.generating || readyChunks.length > 0) && (
+          <button
+            onClick={handleDeleteAudio}
+            className="text-sm text-gray-500 hover:text-red-600"
+          >
+            {status.generating ? "Cancel" : "Delete audio"}
+          </button>
         )}
 
         <Link to="/voices" className="text-sm text-gray-500 hover:underline">
@@ -413,10 +512,21 @@ export default function Reader() {
         </Link>
       </div>
 
+      {status && !allReady && (
+        <div className="mt-3">
+          <EngineNotice
+            status={engineStatus}
+            checking={engines.checking}
+            onRecheck={engines.recheck}
+          />
+        </div>
+      )}
+
       {outdatedCount > 0 && !status.generating && (
         <p className="mt-3 text-sm text-amber-700">
-          {outdatedCount} {outdatedCount === 1 ? "section uses" : "sections use"}{" "}
-          an older pronunciation.{" "}
+          {outdatedCount}{" "}
+          {outdatedCount === 1 ? "section uses" : "sections use"} an older
+          pronunciation.{" "}
           <button
             onClick={handleRegenerateOutdated}
             className="font-medium underline hover:text-black"
@@ -430,21 +540,36 @@ export default function Reader() {
         <p className="mt-3 text-red-600">{error || status.error}</p>
       )}
 
-      <div ref={textRef} className="mt-8 space-y-4 leading-8">
+      <div
+        ref={textRef}
+        className="mt-8 space-y-4"
+        style={{
+          fontFamily: FONTS[prefs.font].family,
+          fontSize: `${prefs.font_size}px`,
+          lineHeight: 1.8,
+          textAlign: prefs.align,
+          // See-through tints used by the highlights (see ChunkText).
+          "--highlight-word": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.4)`,
+          "--highlight-chunk": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.15)`,
+        }}
+      >
         {doc.chunks.map((chunk) => (
           <div
             key={chunk.id}
             ref={(el) => (chunkRefs.current[chunk.index] = el)}
             data-chunk={chunk.index}
             className={`space-y-4 rounded p-2 ${
-              activeIndex === chunk.index && !activeWordTimes
-                ? "bg-yellow-100"
+              activeIndex === chunk.index &&
+              !activeWordTimes &&
+              prefs.highlight_words
+                ? "bg-(--highlight-chunk)"
                 : ""
             }`}
           >
             <ChunkText
               paragraphs={chunk.paragraphs}
               currentWord={activeIndex === chunk.index ? currentWord : -1}
+              highlight={prefs.highlight_words}
             />
           </div>
         ))}
@@ -475,10 +600,12 @@ export default function Reader() {
         </div>
       )}
 
-      {prefsOpen && (
+      {panel && (
         <PreferencesPanel
-          onClose={() => setPrefsOpen(false)}
-          prefill={pronunciationPrefill}
+          // A new prefill reopens the panel on the Pronunciations tab.
+          key={panel.prefill?.n ?? 0}
+          onClose={() => setPanel(null)}
+          prefill={panel.prefill}
           voice={preset}
           onPronunciationsChange={() => setPollKey((k) => k + 1)}
         />

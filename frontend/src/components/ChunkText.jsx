@@ -15,7 +15,9 @@ function numberWords(paragraphs) {
 // data-word holds each word's number, so a text selection can be traced back
 // to a word (for "Play from here"). The space is kept outside the word's
 // span, so a selection starting on a space doesn't count the previous word.
-export default memo(function ChunkText({ paragraphs, currentWord }) {
+// data-current-word is set even with highlighting turned off, because
+// following the reading position uses it to scroll.
+export default memo(function ChunkText({ paragraphs, currentWord, highlight }) {
   const numbered = useMemo(() => numberWords(paragraphs), [paragraphs]);
 
   return numbered.map((words, i) => (
@@ -25,7 +27,11 @@ export default memo(function ChunkText({ paragraphs, currentWord }) {
           <span
             data-word={index}
             data-current-word={index === currentWord || undefined}
-            className={index === currentWord ? "rounded bg-yellow-200" : ""}
+            className={
+              highlight && index === currentWord
+                ? "rounded bg-(--highlight-word)"
+                : ""
+            }
           >
             {word}
           </span>{" "}

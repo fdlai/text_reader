@@ -7,6 +7,8 @@ from kokoro_onnx import Kokoro
 from openai import APIStatusError, AsyncOpenAI, AuthenticationError, OpenAIError
 
 from app.config import settings
+from app.services import qwen
+from app.services.errors import TTSError
 
 OPENAI_VOICES = [
     "alloy",
@@ -61,20 +63,38 @@ VOICES = {"kokoro": KOKORO_VOICES, "openai": OPENAI_VOICES}
 KOKORO_MODEL = "kokoro-v1.0"
 
 
-class TTSError(Exception):
-    pass
-
-
 def model_name(engine: str) -> str:
     """The model recorded with each audio file, so audio from different engines never mixes."""
-    return KOKORO_MODEL if engine == "kokoro" else settings.tts_model
+    return {"kokoro": KOKORO_MODEL, "qwen": qwen.MODEL_NAME}.get(engine, settings.tts_model)
 
 
 async def synthesize(text: str, engine: str, voice: str, instructions: str) -> bytes:
     """Return MP3 audio for the text."""
     if engine == "kokoro":
         return await asyncio.to_thread(_kokoro_synthesize, text, voice)
+    if engine == "qwen":
+        samples, sample_rate = await qwen.speak(text, int(voice))
+        return await asyncio.to_thread(_to_mp3, samples, sample_rate)
     return await _openai_synthesize(text, voice, instructions)
+
+
+def _to_mp3(samples, sample_rate: int) -> bytes:
+    buffer = io.BytesIO()
+    sf.write(buffer, samples, sample_rate, format="MP3")
+    return buffer.getvalue()
+
+
+async def unavailable_reasons() -> dict[str, str | None]:
+    """For each engine, why it can't generate right now, or None if it can."""
+    model_dir = Path(settings.kokoro_model_dir)
+    kokoro_ready = (model_dir / "kokoro-v1.0.onnx").is_file() and (
+        model_dir / "voices-v1.0.bin"
+    ).is_file()
+    return {
+        "kokoro": None if kokoro_ready else f"Kokoro's model files are missing from backend/{model_dir}.",
+        "openai": None if settings.openai_api_key else "Add OPENAI_API_KEY to backend/.env to use OpenAI voices.",
+        "qwen": await qwen.unavailable_reason(),
+    }
 
 
 _client: AsyncOpenAI | None = None
@@ -131,6 +151,4 @@ def _get_kokoro() -> Kokoro:
 def _kokoro_synthesize(text: str, voice: str) -> bytes:
     lang = "en-gb" if voice.startswith("b") else "en-us"
     samples, sample_rate = _get_kokoro().create(text, voice=voice, lang=lang)
-    buffer = io.BytesIO()
-    sf.write(buffer, samples, sample_rate, format="MP3")
-    return buffer.getvalue()
+    return _to_mp3(samples, sample_rate)

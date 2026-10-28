@@ -10,7 +10,11 @@ class Settings(BaseSettings):
     kokoro_model_dir: str = "models/kokoro"
     whisper_model: str = "base.en"
     whisper_model_dir: str = "models/whisper"
+    qwen_model_dir: str = "models/qwen"
+    qwen_image: str = "ghcr.io/serveurpersocom/qwentts.cpp:cuda12"
+    qwen_port: int = 8091
     audio_dir: str = "storage/audio"
+    voices_dir: str = "storage/voices"
     cors_origins: list[str] = ["http://localhost:5173"]
 
 

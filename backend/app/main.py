@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -8,7 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import SessionLocal, get_session
 from app.models import VoicePreset
-from app.routers import audio, documents, pronunciations, voices
+from app.routers import (
+    audio,
+    custom_voices,
+    documents,
+    engines,
+    preferences,
+    pronunciations,
+    voices,
+)
+from app.services import generation, qwen
 
 
 @asynccontextmanager
@@ -30,7 +40,12 @@ async def lifespan(_: FastAPI):
                 )
             )
             await session.commit()
+
+    idle_watcher = asyncio.create_task(qwen.stop_when_idle())
     yield
+    idle_watcher.cancel()
+    await generation.shutdown()
+    await qwen.shutdown()
 
 
 app = FastAPI(title="Text Reader", lifespan=lifespan)
@@ -46,6 +61,9 @@ app.include_router(documents.router)
 app.include_router(voices.router)
 app.include_router(audio.router)
 app.include_router(pronunciations.router)
+app.include_router(custom_voices.router)
+app.include_router(engines.router)
+app.include_router(preferences.router)
 
 
 @app.get("/api/health")

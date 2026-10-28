@@ -1,1 +1,45 @@
 @import "tailwindcss";
+
+/*
+ * Themes. Every Tailwind color class (bg-white, text-black, text-gray-500,
+ * ...) reads its color from a variable like --color-white, so a theme only
+ * has to redefine those variables to restyle the whole app. In dark mode,
+ * "white" is the dark background and "black" the light text, and the grays
+ * run the other way. data-theme is set on <html> by PreferencesProvider.
+ */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --color-white: oklch(17% 0.01 260);
+  --color-black: oklch(95% 0.005 260);
+  --color-gray-50: oklch(21% 0.012 260);
+  --color-gray-100: oklch(26% 0.014 260);
+  --color-gray-200: oklch(32% 0.016 260);
+  --color-gray-300: oklch(40% 0.018 260);
+  --color-gray-400: oklch(55% 0.02 260);
+  --color-gray-500: oklch(66% 0.02 260);
+  --color-gray-600: oklch(74% 0.015 260);
+  --color-gray-700: oklch(82% 0.01 260);
+  --color-gray-800: oklch(88% 0.008 260);
+  --color-gray-900: oklch(93% 0.005 260);
+  --color-gray-950: oklch(96% 0.004 260);
+}
+
+html[data-theme="paper"] {
+  --color-white: #f5ecd9;
+  --color-black: #3a2e22;
+  --color-gray-50: #efe5cf;
+  --color-gray-100: #e8dcc2;
+  --color-gray-200: #dccdae;
+  --color-gray-300: #cdbb97;
+  --color-gray-400: #a39377;
+  --color-gray-500: #85765f;
+  --color-gray-600: #6b5e4c;
+  --color-gray-700: #54493b;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-white);
+    color: var(--color-black);
+  }
+}

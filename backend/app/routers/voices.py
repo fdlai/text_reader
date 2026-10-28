@@ -1,32 +1,33 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
-from app.models import AudioFile, VoicePreset
-from app.schemas_audio import VoicePresetIn, VoicePresetOut, VoicePreviewIn
-from app.services.generation import remove_files
+from app.models import CustomVoice, VoicePreset
+from app.schemas_audio import SpeedIn, VoicePresetIn, VoicePresetOut, VoicePreviewIn
+from app.services.generation import delete_preset_audio
 from app.services.tts import VOICES, TTSError, synthesize
 
 router = APIRouter(prefix="/api/voice-presets", tags=["voices"])
 
 
-async def _clear_audio(session: AsyncSession, preset_id: int) -> None:
-    paths = (
-        await session.scalars(
-            select(AudioFile.file_path).where(AudioFile.voice_preset_id == preset_id)
-        )
-    ).all()
-    await session.execute(
-        delete(AudioFile).where(AudioFile.voice_preset_id == preset_id)
-    )
-    remove_files(list(paths))
+async def _check_voice(session: AsyncSession, body: VoicePresetIn) -> None:
+    if body.engine == "qwen" and await session.get(CustomVoice, int(body.base_voice)) is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That saved voice doesn't exist.")
 
 
+# Each engine's voices as {id, label}. Built-in voices are labelled by their
+# id; Qwen's voices are the user's saved voices, labelled by name.
 @router.get("/voices")
-async def list_engine_voices() -> dict[str, list[str]]:
-    return VOICES
+async def list_engine_voices(
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, list[dict[str, str]]]:
+    saved = (await session.scalars(select(CustomVoice).order_by(CustomVoice.name))).all()
+    return {
+        **{engine: [{"id": v, "label": v} for v in voices] for engine, voices in VOICES.items()},
+        "qwen": [{"id": str(v.id), "label": v.name} for v in saved],
+    }
 
 
 @router.get("", response_model=list[VoicePresetOut])
@@ -40,6 +41,7 @@ async def list_presets(session: AsyncSession = Depends(get_session)):
 async def create_preset(
     body: VoicePresetIn, session: AsyncSession = Depends(get_session)
 ):
+    await _check_voice(session, body)
     preset = VoicePreset(**body.model_dump())
     session.add(preset)
     try:
@@ -58,11 +60,12 @@ async def update_preset(
     preset = await session.get(VoicePreset, preset_id)
     if preset is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Preset not found.")
+    await _check_voice(session, body)
 
     # Existing audio no longer matches the voice, so it is discarded and regenerated on demand.
     old = (preset.engine, preset.base_voice, preset.instructions)
     if old != (body.engine, body.base_voice, body.instructions):
-        await _clear_audio(session, preset_id)
+        await delete_preset_audio(session, preset_id)
 
     for field, value in body.model_dump().items():
         setattr(preset, field, value)
@@ -75,12 +78,26 @@ async def update_preset(
     return preset
 
 
+# Speed only affects playback, not the audio, so changing it keeps the
+# generated audio (unlike changing the voice or instructions).
+@router.patch("/{preset_id}/speed", response_model=VoicePresetOut)
+async def update_speed(
+    preset_id: int, body: SpeedIn, session: AsyncSession = Depends(get_session)
+):
+    preset = await session.get(VoicePreset, preset_id)
+    if preset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Preset not found.")
+    preset.speed = body.speed
+    await session.commit()
+    return preset
+
+
 @router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_preset(preset_id: int, session: AsyncSession = Depends(get_session)):
     preset = await session.get(VoicePreset, preset_id)
     if preset is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Preset not found.")
-    await _clear_audio(session, preset_id)
+    await delete_preset_audio(session, preset_id)
     await session.delete(preset)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

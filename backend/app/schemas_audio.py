@@ -1,30 +1,43 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.services.tts import VOICES
 
-Engine = Literal["kokoro", "openai"]
+Engine = Literal["kokoro", "openai", "qwen"]
 
 
 class VoiceSettings(BaseModel):
     engine: Engine = "openai"
+    # For qwen, the id of one of the user's saved voices (a CustomVoice).
     base_voice: str
     instructions: str = Field(default="", max_length=2000)
 
     @model_validator(mode="after")
     def check_voice(self):
-        if self.base_voice not in VOICES[self.engine]:
+        # Saved Qwen voices live in the database, so routes check they exist.
+        if self.engine == "qwen":
+            if not self.base_voice.isdigit():
+                raise ValueError(f"Unknown qwen voice: {self.base_voice}")
+        elif self.base_voice not in VOICES[self.engine]:
             raise ValueError(f"Unknown {self.engine} voice: {self.base_voice}")
-        # Kokoro has no style prompt, so instructions would be silently ignored.
-        if self.engine == "kokoro":
+        # Only OpenAI has a style prompt; elsewhere it would be silently ignored.
+        if self.engine != "openai":
             self.instructions = ""
         return self
 
 
+# Playback speed multiplier, shared by the preset form and the player.
+Speed = Annotated[float, Field(ge=0.5, le=3.0)]
+
+
 class VoicePresetIn(VoiceSettings):
     name: str = Field(min_length=1, max_length=100)
-    speed: float = Field(default=1.0, ge=0.5, le=3.0)
+    speed: Speed = 1.0
+
+
+class SpeedIn(BaseModel):
+    speed: Speed
 
 
 class VoicePresetOut(VoicePresetIn):
@@ -37,8 +50,29 @@ class VoicePreviewIn(VoiceSettings):
     text: str = Field(min_length=1, max_length=500)
 
 
+class VoiceDesignIn(BaseModel):
+    description: str = Field(min_length=1, max_length=1000)
+
+
+class CustomVoiceIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=1000)
+    # The sample clip (a WAV file) chosen on the Create page, base64-encoded.
+    sample_b64: str = Field(max_length=5_000_000)
+
+
+class CustomVoiceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    description: str
+
+
 class GenerateIn(BaseModel):
     voice_preset_id: int
+    # Put the job at the front of the queue, e.g. because it's being listened to.
+    front: bool = False
 
 
 class ChunkAudioStatus(BaseModel):
@@ -55,6 +89,9 @@ class ChunkAudioStatus(BaseModel):
 
 
 class GenerationStatus(BaseModel):
+    # True while queued or being generated.
     generating: bool
+    # Jobs ahead of this one in the queue (0 = next or in progress).
+    queue_position: int | None
     error: str | None
     chunks: list[ChunkAudioStatus]

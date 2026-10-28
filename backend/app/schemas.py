@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, computed_field
 
@@ -49,6 +50,18 @@ class PronunciationOut(PronunciationIn):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+
+
+class Preferences(BaseModel):
+    # Saved settings missing a newer field get its default here, and fields
+    # that no longer exist are ignored.
+    theme: Literal["auto", "light", "dark", "paper"] = "auto"
+    font: Literal["sans", "serif", "book", "verdana"] = "sans"
+    font_size: int = Field(default=18, ge=12, le=60)
+    align: Literal["left", "justify"] = "left"
+    page_width: Literal["normal", "wide", "full"] = "normal"
+    highlight_words: bool = True
+    highlight_color: Literal["yellow", "green", "blue", "pink"] = "yellow"
 
 
 class Progress(BaseModel):

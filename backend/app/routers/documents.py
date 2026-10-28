@@ -10,7 +10,7 @@ from app.schemas import DocumentCreate, DocumentDetail, DocumentSummary, Progres
 from app.services.chunker import chunk_text
 from app.services.extractor import ExtractionError, extract_article
 from app.services.fetcher import FetchError, fetch_html
-from app.services.generation import remove_files
+from app.services.generation import cancel_generation, remove_files
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -94,6 +94,8 @@ async def delete_document(
     document = await session.get(Document, document_id)
     if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
+    # Otherwise a running job would keep generating audio for deleted chunks.
+    await cancel_generation(document_id=document_id)
     audio_paths = (
         await session.scalars(
             select(AudioFile.file_path)
