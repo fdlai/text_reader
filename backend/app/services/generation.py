@@ -9,6 +9,7 @@ its document starts playing) therefore takes effect after at most one chunk.
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 
 from mutagen.mp3 import MP3
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import SessionLocal
 from app.models import AudioFile, Chunk, VoicePreset
+from app.services import qwen
 from app.services.alignment import word_start_times
 from app.services.pronunciation import load_lexicon
 from app.services.tts import TTSError, model_name, synthesize
@@ -27,8 +29,10 @@ logger = logging.getLogger(__name__)
 Key = tuple[int, int]  # (document_id, voice_preset_id)
 
 # Every job that was requested, including finished ones, so the status can
-# show an error: key -> {"running": bool, "error": str | None}.
-# "running" means queued or being worked on.
+# show an error: key -> {"running": bool, "error": str | None, "notice": ...}.
+# "running" means queued or being worked on. "notice" is a message about
+# something going wrong and being fixed: (text, time it disappears or None
+# to stay until replaced), or None.
 jobs: dict[Key, dict] = {}
 _queue: list[Key] = []  # unfinished jobs, next first
 _wakeup = asyncio.Event()
@@ -84,7 +88,14 @@ async def _next_chunk(document_id: int, preset_id: int) -> bool:
         # word timings are still matched against the real text.
         spoken_text, used = (await load_lexicon(session)).apply(chunk.text)
 
-    data = await synthesize(spoken_text, preset.engine, preset.base_voice, preset.instructions)
+    def notify(message: str, done: bool) -> None:
+        if job := jobs.get((document_id, preset_id)):
+            # A "fixed" message only stays up for a little while.
+            job["notice"] = (message, time.monotonic() + qwen.NOTICE_SECONDS if done else None)
+
+    data = await synthesize(
+        spoken_text, preset.engine, preset.base_voice, preset.instructions, notify
+    )
     path = Path(settings.audio_dir) / f"{chunk.id}_{preset_id}_{model}.mp3"
     try:
         duration = await asyncio.to_thread(_write_audio, path, data)
@@ -140,6 +151,15 @@ async def _work() -> None:
                 _current = None
             if not more:
                 _finish(key)
+
+
+def notice(document_id: int, preset_id: int) -> str | None:
+    """The job's current notice text, if it hasn't expired."""
+    value = jobs.get((document_id, preset_id), {}).get("notice")
+    if value is None:
+        return None
+    text, expires = value
+    return text if expires is None or time.monotonic() < expires else None
 
 
 def queue_position(document_id: int, preset_id: int) -> int | None:

@@ -1,5 +1,6 @@
 import asyncio
 import io
+from collections.abc import Callable
 from pathlib import Path
 
 import soundfile as sf
@@ -68,12 +69,19 @@ def model_name(engine: str) -> str:
     return {"kokoro": KOKORO_MODEL, "qwen": qwen.MODEL_NAME}.get(engine, settings.tts_model)
 
 
-async def synthesize(text: str, engine: str, voice: str, instructions: str) -> bytes:
-    """Return MP3 audio for the text."""
+async def synthesize(
+    text: str,
+    engine: str,
+    voice: str,
+    instructions: str,
+    notify: Callable[[str, bool], None] | None = None,
+) -> bytes:
+    """Return MP3 audio for the text. notify(message, done) reports Qwen
+    recovering from running out of memory (see qwen.speak)."""
     if engine == "kokoro":
         return await asyncio.to_thread(_kokoro_synthesize, text, voice)
     if engine == "qwen":
-        samples, sample_rate = await qwen.speak(text, int(voice))
+        samples, sample_rate = await qwen.speak(text, int(voice), notify)
         return await asyncio.to_thread(_to_mp3, samples, sample_rate)
     return await _openai_synthesize(text, voice, instructions)
 

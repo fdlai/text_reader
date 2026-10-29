@@ -18,6 +18,7 @@ import logging
 import re
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -41,11 +42,17 @@ SAMPLE_RATE = 24000
 IDLE_SECONDS = 5 * 60
 # Pause between paragraphs, which are generated one at a time.
 PARAGRAPH_PAUSE = 0.35
-# How much of a voice's sample Qwen learns the voice from. It only takes a
-# voice "fingerprint", which a few seconds capture, and longer clips need
-# more GPU memory: a 10 s sample ran out of memory on a 4 GB GPU with a few
-# other apps open, while its first 8 s worked.
-MAX_REFERENCE_SECONDS = 8
+# Qwen learns a voice from its whole sample (about 10 s), but longer clips
+# need more GPU memory: a 10 s sample ran out of memory on a 4 GB GPU with a
+# few other apps open, while its first 8 s worked. When that happens, Qwen
+# is restarted and the voice loaded again from a shorter clip, trying these
+# lengths in turn. Qwen can learn a voice from as little as 3 s, though very
+# short clips capture it less faithfully.
+SHORTER_REFERENCES = (8, 6, 4, 3)
+# Below this, the voice may sound noticeably different, so the user is told.
+FAITHFUL_REFERENCE_SECONDS = 6
+# How long the "fixed" message stays up after recovering.
+NOTICE_SECONDS = 15
 
 # What a voice sample says. A plain narration sentence makes a sample that
 # represents the voice well.
@@ -57,6 +64,10 @@ DESIGN_TEXT = (
 _mode: str | None = None  # which model is running, if any
 _registered: set[int] = set()  # custom voice ids the running server knows
 _last_used = 0.0
+# The longest sample, in seconds, that has loaded without running out of
+# memory, or None to use whole samples. Only kept until the app restarts,
+# since the GPU may be freer next time.
+_reference_limit: float | None = None
 # One request at a time: the server handles one anyway, and it stops a
 # model swap from happening in the middle of a request.
 _lock = asyncio.Lock()
@@ -69,8 +80,8 @@ def voice_path(voice_id: int) -> Path:
 async def _docker(*args: str, timeout: float | None = None) -> tuple[int, str]:
     # Run in a thread with plain subprocess: on Windows, the event loop
     # uvicorn uses with --reload can't start subprocesses itself.
-    try:
-        result = await asyncio.to_thread(
+    command = asyncio.ensure_future(
+        asyncio.to_thread(
             subprocess.run,
             ["docker", *args],
             stdout=subprocess.PIPE,
@@ -79,6 +90,16 @@ async def _docker(*args: str, timeout: float | None = None) -> tuple[int, str]:
             errors="replace",
             timeout=timeout,
         )
+    )
+    try:
+        # shield: being cancelled (e.g. the user cancelling generation) can't
+        # stop a command that's already running, so wait for it to finish
+        # first. Otherwise cleanup could run before it, e.g. removing the
+        # container before "docker run" has created it.
+        result = await asyncio.shield(command)
+    except asyncio.CancelledError:
+        await asyncio.wait([command])
+        raise
     except FileNotFoundError:
         raise TTSError("Qwen needs Docker, which isn't installed.")
     except subprocess.TimeoutExpired:
@@ -106,7 +127,11 @@ async def _stop() -> None:
     _mode = None
     _registered.clear()
     # rm -f also removes a container left over from a crash.
-    await _docker("rm", "-f", CONTAINER)
+    await _docker("rm", "-f", CONTAINER, timeout=60)
+
+
+class OutOfMemory(TTSError):
+    pass
 
 
 def _check(code: int, output: str, action: str) -> None:
@@ -145,8 +170,20 @@ async def _ensure_models(names: list[str]) -> None:
 
 
 async def _start(mode: str) -> None:
-    global _mode
     await _stop()
+    try:
+        await _start_container(mode)
+    except asyncio.CancelledError:
+        # Cancelled partway (e.g. the user cancelled generation): the
+        # container may be starting, but the app hasn't recorded it as
+        # running, so nothing would ever stop it. Remove it now; it starts
+        # again when next needed.
+        await _stop()
+        raise
+
+
+async def _start_container(mode: str) -> None:
+    global _mode
     await _ensure_models([MODELS[mode], CODEC])
 
     logger.info("Starting Qwen (%s model)", mode)
@@ -194,10 +231,14 @@ async def _post(path: str, body: dict) -> bytes:
     except httpx.TransportError as e:
         # The container probably crashed. Its log says why, and is gone once
         # it's removed; the next request starts a new one.
-        _, logs = await _docker("logs", "--tail", "40", CONTAINER)
-        await _stop()
+        try:
+            _, logs = await _docker("logs", "--tail", "40", CONTAINER)
+        finally:
+            # Even if cancelled while reading the log, so the app doesn't
+            # think the crashed container is still running.
+            await _stop()
         if "out of memory" in logs.lower():
-            raise TTSError(
+            raise OutOfMemory(
                 "Qwen ran out of GPU memory. Closing other apps that use the GPU "
                 "(browsers, video players, games) and trying again usually helps."
             ) from e
@@ -230,22 +271,18 @@ async def design(description: str) -> bytes:
         )
 
 
-async def speak(text: str, voice_id: int) -> tuple[np.ndarray, int]:
-    """Read the text in a saved voice, one paragraph at a time."""
+async def speak(
+    text: str, voice_id: int, notify: Callable[[str, bool], None] | None = None
+) -> tuple[np.ndarray, int]:
+    """Read the text in a saved voice, one paragraph at a time.
+
+    notify(message, done) is called if Qwen runs out of memory and has to be
+    restarted: done=False while recovering, then done=True once it works.
+    """
     async with _lock:
         await _use("clone")
         if voice_id not in _registered:
-            path = voice_path(voice_id)
-            if not path.is_file():
-                raise TTSError("The sample for this voice is missing.")
-            # Without the sample's transcript the server keeps only a voice
-            # "fingerprint", which is about twice as fast as copying the
-            # sample closely and still keeps the voice consistent.
-            await _post(
-                "/v1/audio/voices",
-                {"name": f"v{voice_id}", "wav_b64": base64.b64encode(_reference(path)).decode()},
-            )
-            _registered.add(voice_id)
+            await _register(voice_id, notify or (lambda message, done: None))
 
         pause = np.zeros(int(SAMPLE_RATE * PARAGRAPH_PAUSE), dtype=np.float32)
         pieces = []
@@ -268,12 +305,66 @@ async def speak(text: str, voice_id: int) -> tuple[np.ndarray, int]:
         return np.concatenate(pieces), SAMPLE_RATE
 
 
-def _reference(path: Path) -> bytes:
-    """The voice's sample as WAV bytes, cut to MAX_REFERENCE_SECONDS."""
+async def _register(voice_id: int, notify: Callable[[str, bool], None]) -> None:
+    """Load a voice's sample into Qwen, from a shorter clip if it runs out of
+    memory (see SHORTER_REFERENCES)."""
+    global _reference_limit
+    path = voice_path(voice_id)
+    if not path.is_file():
+        raise TTSError("The sample for this voice is missing.")
     audio, rate = sf.read(path, dtype="float32")
+    full = len(audio) / rate
+    recovered = False
+    while True:
+        seconds = min(full, _reference_limit or full)
+        try:
+            # Running out of memory crashes Qwen, which stops the container,
+            # so start it again if needed.
+            await _use("clone")
+            # Without the sample's transcript the server keeps only a voice
+            # "fingerprint", which is about twice as fast as copying the
+            # sample closely and still keeps the voice consistent.
+            await _post(
+                "/v1/audio/voices",
+                {"name": f"v{voice_id}", "wav_b64": _wav_b64(audio[: int(seconds * rate)], rate)},
+            )
+            break
+        except OutOfMemory:
+            shorter = next((s for s in SHORTER_REFERENCES if s < seconds), None)
+            if shorter is None:
+                # Trying again is meant for after closing other apps, so it
+                # starts from the whole sample again.
+                _reference_limit = None
+                raise OutOfMemory(
+                    f"Qwen ran out of GPU memory, even with a {seconds:g} s voice sample. "
+                    "Close other apps that use the GPU (browsers, video players, games), "
+                    "then try again."
+                )
+            logger.warning("Qwen ran out of memory with a %.1f s sample; trying %d s", seconds, shorter)
+            _reference_limit = shorter
+            recovered = True
+            notify(
+                f"Qwen ran out of GPU memory. Restarting it with a shorter voice sample ({shorter} s)…",
+                False,
+            )
+    _registered.add(voice_id)
+
+    if recovered:
+        if seconds < FAITHFUL_REFERENCE_SECONDS:
+            notify(
+                f"Fixed. Qwen is using only {seconds:g} s of the voice sample, so the voice may "
+                "sound slightly different. Closing other apps and restarting the app lets it "
+                "use the full sample.",
+                True,
+            )
+        else:
+            notify(f"Fixed. Qwen is using {seconds:g} s of the voice sample on this computer.", True)
+
+
+def _wav_b64(audio: np.ndarray, rate: int) -> str:
     buffer = io.BytesIO()
-    sf.write(buffer, audio[: int(MAX_REFERENCE_SECONDS * rate)], rate, format="WAV", subtype="PCM_16")
-    return buffer.getvalue()
+    sf.write(buffer, audio, rate, format="WAV", subtype="PCM_16")
+    return base64.b64encode(buffer.getvalue()).decode()
 
 
 async def stop_when_idle() -> None:
@@ -287,6 +378,11 @@ async def stop_when_idle() -> None:
                     await _stop()
 
 
-async def shutdown() -> None:
-    if _mode:
+async def remove_container() -> None:
+    """Remove the Qwen container when the app starts and shuts down, even if
+    the app doesn't think one is running (e.g. one left over after the app
+    was force-closed), so it can't hold GPU memory unnoticed."""
+    try:
         await _stop()
+    except TTSError:
+        pass  # Docker isn't installed or isn't responding, so there's no container

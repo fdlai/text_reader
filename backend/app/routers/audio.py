@@ -12,6 +12,7 @@ from app.schemas_audio import ChunkAudioStatus, GenerateIn, GenerationStatus
 from app.services.generation import (
     cancel_generation,
     jobs,
+    notice,
     queue_position,
     remove_files,
     start_generation,
@@ -67,6 +68,7 @@ async def _build_status(
         generating=job.get("running", False),
         queue_position=queue_position(document_id, preset.id),
         error=job.get("error"),
+        notice=notice(document_id, preset.id),
         chunks=[
             ChunkAudioStatus(
                 chunk_id=c.id,

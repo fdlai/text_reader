@@ -105,4 +105,7 @@ class GenerationStatus(BaseModel):
     # Jobs ahead of this one in the queue (0 = next or in progress).
     queue_position: int | None
     error: str | None
+    # Something went wrong and is being (or was just) fixed, e.g. Qwen
+    # restarting after running out of GPU memory.
+    notice: str | None
     chunks: list[ChunkAudioStatus]

@@ -41,11 +41,12 @@ async def lifespan(_: FastAPI):
             await session.commit()
         await add_kokoro_voices(session)
 
+    await qwen.remove_container()
     idle_watcher = asyncio.create_task(qwen.stop_when_idle())
     yield
     idle_watcher.cancel()
     await generation.shutdown()
-    await qwen.shutdown()
+    await qwen.remove_container()
 
 
 app = FastAPI(title="Text Reader", lifespan=lifespan)

@@ -214,9 +214,11 @@ export default function Reader() {
   useEffect(() => closePanel, [closePanel]);
 
   // What Space does right now: play/pause, or null if nothing can play yet.
-  // Kept in a ref (refreshed after every render) so the key listener below
-  // is set up once but always sees the current state.
+  // Likewise for the arrow keys: skip, or null if this article isn't the one
+  // playing. Kept in refs (refreshed after every render) so the key listener
+  // below is set up once but always sees the current state.
   const playPauseRef = useRef(null);
+  const skipRef = useRef(null);
   useEffect(() => {
     const canStart = doc && progress && status?.chunks[0]?.ready;
     playPauseRef.current = sameSession
@@ -224,9 +226,11 @@ export default function Reader() {
       : canStart
         ? resume
         : null;
+    skipRef.current = sameSession ? player.skip : null;
   });
 
-  // Keyboard shortcuts: P opens/closes Preferences, Space plays/pauses.
+  // Keyboard shortcuts: P opens/closes Preferences, Space plays/pauses,
+  // Left/Right arrows go back/forward 15 seconds (hold to keep skipping).
   // Ignored while typing in a box. Space is also left alone on a focused
   // button (the browser uses it to press that button), and when nothing can
   // play, so it still scrolls the page then.
@@ -246,6 +250,12 @@ export default function Reader() {
       if (e.key === " " && playPause && !e.target.closest("button")) {
         e.preventDefault(); // otherwise Space would also scroll the page
         if (!e.repeat) playPause();
+        return;
+      }
+      const skip = skipRef.current;
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && skip) {
+        e.preventDefault(); // otherwise a wide page would scroll sideways
+        skip(e.key === "ArrowLeft" ? -15 : 15);
       }
     }
     window.addEventListener("keydown", handleShortcut);
@@ -595,6 +605,12 @@ export default function Reader() {
             Regenerate {outdatedCount === 1 ? "it" : "them"}
           </button>
         </p>
+      )}
+
+      {/* Only set when something went wrong and is being fixed, e.g. Qwen
+          restarting after running out of GPU memory. */}
+      {status?.notice && (
+        <p className="mt-3 text-sm text-amber-700">{status.notice}</p>
       )}
 
       {(error || status?.error) && (
