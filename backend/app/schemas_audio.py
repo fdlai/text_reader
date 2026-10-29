@@ -36,6 +36,16 @@ class VoicePresetIn(VoiceSettings):
     speed: Speed = 1.0
 
 
+class VoicePresetSave(VoicePresetIn):
+    # Optional: a preview clip (MP3, base64) of this voice reading the
+    # standard sample text, kept as its sample so previewing it later is free.
+    sample_b64: str | None = Field(default=None, max_length=2_000_000)
+
+
+class NameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+
 class SpeedIn(BaseModel):
     speed: Speed
 
@@ -47,7 +57,8 @@ class VoicePresetOut(VoicePresetIn):
 
 
 class VoicePreviewIn(VoiceSettings):
-    text: str = Field(min_length=1, max_length=500)
+    # Leave out to read the standard sample text (the one voice samples use).
+    text: str | None = Field(default=None, min_length=1, max_length=500)
 
 
 class VoiceDesignIn(BaseModel):

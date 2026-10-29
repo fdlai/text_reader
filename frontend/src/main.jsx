@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import "./index.css";
 import App from "./App.jsx";
+import ConfirmProvider from "./context/ConfirmProvider";
 import { applyTheme, cachedPreferences } from "./context/preferences";
 import PreferencesProvider from "./context/PreferencesProvider";
 
@@ -13,7 +14,9 @@ createRoot(document.getElementById("root")).render(
   <StrictMode>
     <BrowserRouter>
       <PreferencesProvider>
-        <App />
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>
       </PreferencesProvider>
     </BrowserRouter>
   </StrictMode>,

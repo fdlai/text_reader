@@ -1,8 +1,12 @@
-// Long labels for choosing an engine, short tags for showing one.
-export const ENGINES = {
-  kokoro: "Kokoro (free, built-in voices)",
-  qwen: "Qwen (free, your own voices, uses your GPU)",
-  openai: "OpenAI (paid, supports style instructions)",
+export const ENGINE_NAMES = {
+  kokoro: "Kokoro",
+  qwen: "Qwen",
+  openai: "OpenAI",
 };
 
-export const ENGINE_TAGS = { kokoro: "Free", qwen: "Qwen", openai: "OpenAI" };
+// Kokoro voice ids start with accent and gender: "bf_emma" is a British
+// female voice.
+const ACCENTS = { a: "American", b: "British" };
+const GENDERS = { f: "female", m: "male" };
+export const kokoroDetail = (id) =>
+  `${ACCENTS[id[0]] ?? ""} · ${GENDERS[id[1]] ?? ""}`;

@@ -6,6 +6,7 @@ import {
   previewVoice,
   updatePronunciation,
 } from "../api";
+import { useConfirm } from "../context/confirm";
 
 const EMPTY = { word: "", sounds_like: "" };
 
@@ -23,6 +24,7 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState("");
   const [previewing, setPreviewing] = useState(false);
+  const confirm = useConfirm();
 
   useEffect(() => {
     listPronunciations()
@@ -83,7 +85,10 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
     try {
       if (editingId) {
         const entry = entries.find((x) => x.id === editingId);
-        await updatePronunciation(editingId, { ...form, enabled: entry.enabled });
+        await updatePronunciation(editingId, {
+          ...form,
+          enabled: entry.enabled,
+        });
       } else {
         await createPronunciation(form);
       }
@@ -97,7 +102,10 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
   async function handleToggle(entry) {
     setError("");
     try {
-      await updatePronunciation(entry.id, { ...entry, enabled: !entry.enabled });
+      await updatePronunciation(entry.id, {
+        ...entry,
+        enabled: !entry.enabled,
+      });
       await refresh();
     } catch (err) {
       setError(err.message);
@@ -105,7 +113,11 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
   }
 
   async function handleDelete(entry) {
-    if (!confirm(`Delete the pronunciation for "${entry.word}"?`)) return;
+    const confirmed = await confirm({
+      title: "Delete pronunciation?",
+      message: `The pronunciation for "${entry.word}" will be removed.`,
+    });
+    if (!confirmed) return;
     setError("");
     try {
       await deletePronunciation(entry.id);
@@ -165,7 +177,11 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
             Save
           </button>
           {editingId && (
-            <button type="button" onClick={reset} className="px-3 py-1.5 text-sm">
+            <button
+              type="button"
+              onClick={reset}
+              className="px-3 py-1.5 text-sm"
+            >
               Cancel
             </button>
           )}

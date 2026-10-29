@@ -58,12 +58,20 @@ export const createVoice = (voice) =>
 export const updateVoice = (id, voice) =>
   request(`/voice-presets/${id}`, json("PUT", voice));
 
+export const renameVoice = (id, name) =>
+  request(`/voice-presets/${id}/name`, json("PATCH", { name }));
+
 export const updateVoiceSpeed = (id, speed) =>
   request(`/voice-presets/${id}/speed`, json("PATCH", { speed }));
 
 export const deleteVoice = (id) =>
   request(`/voice-presets/${id}`, { method: "DELETE" });
 
+// A saved clip of the voice, made on first request (see the backend).
+export const voiceSampleUrl = (id) => `/api/voice-presets/${id}/sample`;
+
+// Without voice.text, the voice reads the standard sample text, so the
+// clip can be saved as the voice's sample (see createVoice's sample_b64).
 export const previewVoice = (voice) =>
   request("/voice-presets/preview", json("POST", voice), (r) => r.blob());
 

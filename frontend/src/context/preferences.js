@@ -10,6 +10,7 @@ export const DEFAULTS = {
   page_width: "normal",
   highlight_words: true,
   highlight_color: "yellow",
+  recent_voices: [],
 };
 
 // Fonts that come with the operating system, so nothing is downloaded.

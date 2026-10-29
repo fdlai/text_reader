@@ -41,6 +41,11 @@ SAMPLE_RATE = 24000
 IDLE_SECONDS = 5 * 60
 # Pause between paragraphs, which are generated one at a time.
 PARAGRAPH_PAUSE = 0.35
+# How much of a voice's sample Qwen learns the voice from. It only takes a
+# voice "fingerprint", which a few seconds capture, and longer clips need
+# more GPU memory: a 10 s sample ran out of memory on a 4 GB GPU with a few
+# other apps open, while its first 8 s worked.
+MAX_REFERENCE_SECONDS = 8
 
 # What a voice sample says. A plain narration sentence makes a sample that
 # represents the voice well.
@@ -187,8 +192,15 @@ async def _post(path: str, body: dict) -> bytes:
         async with httpx.AsyncClient(timeout=300) as client:
             response = await client.post(f"{_url()}{path}", json=body)
     except httpx.TransportError as e:
-        # The container may have died; the next request starts a new one.
+        # The container probably crashed. Its log says why, and is gone once
+        # it's removed; the next request starts a new one.
+        _, logs = await _docker("logs", "--tail", "40", CONTAINER)
         await _stop()
+        if "out of memory" in logs.lower():
+            raise TTSError(
+                "Qwen ran out of GPU memory. Closing other apps that use the GPU "
+                "(browsers, video players, games) and trying again usually helps."
+            ) from e
         raise TTSError("Lost the connection to Qwen.") from e
     finally:
         _last_used = time.monotonic()
@@ -231,7 +243,7 @@ async def speak(text: str, voice_id: int) -> tuple[np.ndarray, int]:
             # sample closely and still keeps the voice consistent.
             await _post(
                 "/v1/audio/voices",
-                {"name": f"v{voice_id}", "wav_b64": base64.b64encode(path.read_bytes()).decode()},
+                {"name": f"v{voice_id}", "wav_b64": base64.b64encode(_reference(path)).decode()},
             )
             _registered.add(voice_id)
 
@@ -254,6 +266,14 @@ async def speak(text: str, voice_id: int) -> tuple[np.ndarray, int]:
                 pieces.append(audio)
             pieces.append(pause)
         return np.concatenate(pieces), SAMPLE_RATE
+
+
+def _reference(path: Path) -> bytes:
+    """The voice's sample as WAV bytes, cut to MAX_REFERENCE_SECONDS."""
+    audio, rate = sf.read(path, dtype="float32")
+    buffer = io.BytesIO()
+    sf.write(buffer, audio[: int(MAX_REFERENCE_SECONDS * rate)], rate, format="WAV", subtype="PCM_16")
+    return buffer.getvalue()
 
 
 async def stop_when_idle() -> None:

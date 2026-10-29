@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createDocument, deleteDocument, listDocuments } from "../api";
 import ListeningStatus from "../components/ListeningStatus";
+import { useConfirm } from "../context/confirm";
 import { usePlayer } from "../context/PlayerContext";
 
 export default function Library() {
@@ -11,6 +12,7 @@ export default function Library() {
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const player = usePlayer();
+  const confirm = useConfirm();
   const { saveNow } = player;
 
   // The position of whatever is playing is saved first, so its progress
@@ -41,12 +43,11 @@ export default function Library() {
   }
 
   async function handleDelete(doc) {
-    if (
-      !confirm(
-        `Delete "${doc.title}"? Its audio for every voice and your listening position will be deleted too.`,
-      )
-    )
-      return;
+    const confirmed = await confirm({
+      title: "Delete article?",
+      message: `"${doc.title}" will be removed, along with its audio for every voice and your listening position.`,
+    });
+    if (!confirmed) return;
     setError("");
     try {
       // Its audio is about to disappear, so stop it if it's playing. No

@@ -19,15 +19,14 @@ from app.routers import (
     voices,
 )
 from app.services import generation, qwen
+from app.services.builtin_voices import add_kokoro_voices
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     async with SessionLocal() as session:
+        # On the very first run, add an example OpenAI voice.
         if await session.scalar(select(VoicePreset.id).limit(1)) is None:
-            # The free Kokoro voice is added first so it is the default.
-            session.add(VoicePreset(name="Michael", engine="kokoro", base_voice="am_michael"))
-            await session.flush()
             session.add(
                 VoicePreset(
                     name="Narrator",
@@ -40,6 +39,7 @@ async def lifespan(_: FastAPI):
                 )
             )
             await session.commit()
+        await add_kokoro_voices(session)
 
     idle_watcher = asyncio.create_task(qwen.stop_when_idle())
     yield

@@ -21,9 +21,11 @@ export default function PreferencesPanel({
 
   // Close when clicking outside the panel, or pressing Escape. Clicks on the
   // player bar don't count, so playback can be controlled while the panel
-  // is open (and its ⚙ button can close the panel itself).
+  // is open (and its ⚙ button can close the panel itself). Neither do clicks
+  // and keys in a confirmation dialog, e.g. one opened from this panel.
   useEffect(() => {
     function handlePointerDown(e) {
+      if (e.target.closest("dialog")) return;
       if (
         !ref.current.contains(e.target) &&
         !e.target.closest("[data-player-bar]")
@@ -32,7 +34,7 @@ export default function PreferencesPanel({
       }
     }
     function handleKey(e) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !e.target.closest("dialog")) onClose();
     }
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKey);
@@ -45,7 +47,8 @@ export default function PreferencesPanel({
   return (
     <aside
       ref={ref}
-      className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm flex-col border-l border-gray-200 bg-white shadow-xl">
+      className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm flex-col border-l border-gray-200 bg-white shadow-xl"
+    >
       <div className="flex items-center justify-between px-5 pt-5">
         <h2 className="text-xl font-semibold">Preferences</h2>
         <button

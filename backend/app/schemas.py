@@ -69,6 +69,9 @@ class Preferences(BaseModel):
     page_width: Literal["normal", "wide", "full"] = "normal"
     highlight_words: bool = True
     highlight_color: Literal["yellow", "green", "blue", "pink"] = "yellow"
+    # Voice preset ids, most recently picked first. The first one is the
+    # voice the Reader starts with.
+    recent_voices: list[int] = Field(default_factory=list, max_length=10)
 
 
 class Progress(BaseModel):

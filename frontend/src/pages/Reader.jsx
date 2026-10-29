@@ -12,13 +12,14 @@ import {
 import ChunkText from "../components/ChunkText";
 import EngineNotice from "../components/EngineNotice";
 import PreferencesPanel from "../components/PreferencesPanel";
+import VoicePicker from "../components/VoicePicker";
+import { useConfirm } from "../context/confirm";
 import { usePlayer } from "../context/PlayerContext";
 import {
   FONTS,
   HIGHLIGHT_COLORS,
   usePreferences,
 } from "../context/preferences";
-import { ENGINE_TAGS } from "../engines";
 import { useEngines } from "../useEngines";
 import { chunkLength, wordIndexAt } from "../timeline";
 
@@ -78,13 +79,18 @@ function readyAudio(status) {
 export default function Reader() {
   const documentId = Number(useParams().id);
   const player = usePlayer();
-  const { prefs, panel, setPanel, togglePanel } = usePreferences();
+  const { prefs, update, panel, setPanel, togglePanel } = usePreferences();
   const engines = useEngines();
+  const confirm = useConfirm();
   const { updateChunkAudio } = player;
   const [doc, setDoc] = useState(null);
   const [voices, setVoices] = useState([]);
+  // Starts with the most recently picked voice. (The voice used to be kept
+  // in localStorage, which is still read once so it isn't lost.)
   const [presetId, setPresetId] = useState(
-    () => Number(localStorage.getItem("voicePresetId")) || null,
+    () =>
+      prefs.recent_voices[0] ??
+      (Number(localStorage.getItem("voicePresetId")) || null),
   );
   const [status, setStatus] = useState(null);
   const [progress, setProgress] = useState(null); // where listening left off
@@ -227,7 +233,10 @@ export default function Reader() {
   useEffect(() => {
     function handleShortcut(e) {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.target.closest("input, select, textarea, [contenteditable]"))
+      // Also ignored while a confirmation dialog is open.
+      if (
+        e.target.closest("input, select, textarea, [contenteditable], dialog")
+      )
         return;
       if (e.key === "p" || e.key === "P") {
         if (!e.repeat) togglePanel();
@@ -316,8 +325,8 @@ export default function Reader() {
     ? wordIndexAt(activeWordTimes, offset)
     : -1;
 
-  function handlePresetChange(e) {
-    const value = Number(e.target.value);
+  function handleVoiceChange(value) {
+    if (value === presetId) return;
     // Keep the listening position when switching to another voice.
     if (sameSession) {
       setProgress({
@@ -326,7 +335,15 @@ export default function Reader() {
         finished: player.finished,
       });
     }
-    localStorage.setItem("voicePresetId", value);
+    // Most recent first, without repeats or voices that were deleted.
+    update({
+      recent_voices: [
+        value,
+        ...prefs.recent_voices.filter(
+          (id) => id !== value && voices.some((v) => v.id === id),
+        ),
+      ].slice(0, 10),
+    });
     setStatus(null);
     setPresetId(value);
   }
@@ -357,12 +374,25 @@ export default function Reader() {
   async function handleDeleteAudio() {
     const n = readyChunks.length;
     const sections = `${n} ${n === 1 ? "section" : "sections"}`;
-    const message = status.generating
-      ? n > 0
-        ? `Cancel generation and delete the ${sections} already made with "${preset.name}"?`
-        : `Cancel generating audio with "${preset.name}"?`
-      : `Delete all audio for this article made with "${preset.name}"?`;
-    if (!confirm(message)) return;
+    const confirmed = await confirm(
+      status.generating
+        ? {
+            title: "Stop generating audio?",
+            message:
+              n > 0
+                ? `Generating with "${preset.name}" will stop, and the ${sections} already made will be deleted.`
+                : `Generating with "${preset.name}" will stop.`,
+            confirmLabel: n > 0 ? "Stop and delete" : "Stop generating",
+            // "Cancel" would be confusing next to cancelling generation.
+            cancelLabel: "Keep generating",
+          }
+        : {
+            title: "Delete audio?",
+            message: `All of this article's audio made with "${preset.name}" will be deleted. Your listening position is kept.`,
+            confirmLabel: "Delete audio",
+          },
+    );
+    if (!confirmed) return;
     setError("");
     try {
       if (sameSession) {
@@ -472,17 +502,13 @@ export default function Reader() {
       </a>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
-        <select
-          value={presetId ?? ""}
-          onChange={handlePresetChange}
-          className="rounded border border-gray-300 px-2 py-2"
-        >
-          {voices.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name} ({ENGINE_TAGS[v.engine]})
-            </option>
-          ))}
-        </select>
+        <VoicePicker
+          voices={voices}
+          value={presetId}
+          onChange={handleVoiceChange}
+          recent={prefs.recent_voices}
+          engines={engines}
+        />
 
         {isReady(0) &&
           (finished ? (
