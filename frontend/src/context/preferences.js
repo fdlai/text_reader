@@ -7,6 +7,7 @@ export const DEFAULTS = {
   font: "sans",
   font_size: 18,
   align: "left",
+  hyphenate: false,
   page_width: "normal",
   highlight_words: true,
   highlight_color: "yellow",

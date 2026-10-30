@@ -38,6 +38,7 @@ class DocumentSummary(BaseModel):
 
 # A Library entry: the document plus how far through it listening is.
 class LibraryItem(DocumentSummary):
+    has_cover: bool
     finished: bool
     fraction: float  # 0 to 1, how much has been listened to
     seconds_left: float  # an estimate at normal speed
@@ -66,6 +67,8 @@ class Preferences(BaseModel):
     font: Literal["sans", "serif", "book", "verdana"] = "sans"
     font_size: int = Field(default=18, ge=12, le=60)
     align: Literal["left", "justify"] = "left"
+    # Split long words with a hyphen at the end of a line.
+    hyphenate: bool = False
     page_width: Literal["normal", "wide", "full"] = "normal"
     highlight_words: bool = True
     highlight_color: Literal["yellow", "green", "blue", "pink"] = "yellow"

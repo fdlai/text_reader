@@ -4,6 +4,29 @@ import { usePreferences } from "../context/preferences";
 import { formatTime } from "../timeline";
 import SpeedControl from "./SpeedControl";
 
+// The icons fill with the button's text color, so they follow the theme.
+function PlayIcon() {
+  // Drawn 1px right of center: a centered triangle looks shifted left,
+  // because most of its shape is on the flat side.
+  return (
+    <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+      <path
+        d="M4 2.5v11a.5.5 0 0 0 .76.43l9-5.5a.5.5 0 0 0 0-.86l-9-5.5A.5.5 0 0 0 4 2.5Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="size-4" aria-hidden="true">
+      <rect x="3.5" y="2.5" width="3" height="11" rx="1" fill="currentColor" />
+      <rect x="9.5" y="2.5" width="3" height="11" rx="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 export default function PlayerBar() {
   const {
     session,
@@ -71,9 +94,11 @@ export default function PlayerBar() {
         </button>
         <button
           onClick={toggle}
-          className="w-16 rounded-full bg-black py-2 text-sm text-white"
+          aria-label={playing ? "Pause" : "Play"}
+          title={playing ? "Pause (Space)" : "Play (Space)"}
+          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-black text-white hover:opacity-85"
         >
-          {playing ? "Pause" : "Play"}
+          {playing ? <PauseIcon /> : <PlayIcon />}
         </button>
         <button
           onClick={() => skip(15)}

@@ -24,6 +24,9 @@ class Document(Base):
     source_url: Mapped[str] = mapped_column(Text)
     title: Mapped[str] = mapped_column(String(500))
     text: Mapped[str] = mapped_column(Text)
+    # The type of the saved cover image (e.g. "image/jpeg"), or None if the
+    # page had none. The image is storage/covers/{id}.
+    cover_type: Mapped[str | None] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

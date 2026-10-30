@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from app.database import get_session
 from app.models import AudioFile, Chunk, Document, PlaybackProgress
 from app.schemas import DocumentCreate, DocumentDetail, LibraryItem, Progress
 from app.services.chunker import chunk_text
+from app.services.covers import cover_path, save_cover
 from app.services.extractor import ExtractionError, extract_article
 from app.services.fetcher import FetchError, fetch_html
 from app.services.generation import cancel_generation, remove_files
@@ -27,18 +29,22 @@ async def create_document(
     url = str(body.url)
     try:
         html = await fetch_html(url)
-        title, text = await extract_article(html, url)
+        article = await extract_article(html, url)
     except (FetchError, ExtractionError) as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
     document = Document(
         source_url=url,
-        title=title,
-        text=text,
-        chunks=[Chunk(**c) for c in chunk_text(text)],
+        title=article.title,
+        text=article.text,
+        chunks=[Chunk(**c) for c in chunk_text(article.text)],
     )
     session.add(document)
     await session.commit()
+    # Saved after the document, since the image is named by its id.
+    document.cover_type = await save_cover(document.id, article.image_url)
+    if document.cover_type:
+        await session.commit()
     return document
 
 
@@ -100,6 +106,7 @@ def _library_item(
         title=document.title,
         source_url=document.source_url,
         created_at=document.created_at,
+        has_cover=document.cover_type is not None,
         finished=bool(progress and progress.finished),
         fraction=done / total if total else 0,
         seconds_left=(total - done) * seconds_per_char,
@@ -116,6 +123,21 @@ async def get_document(document_id: int, session: AsyncSession = Depends(get_ses
     if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
     return document
+
+
+@router.get("/{document_id}/cover")
+async def get_cover(document_id: int, session: AsyncSession = Depends(get_session)):
+    document = await session.get(Document, document_id)
+    path = cover_path(document_id)
+    if document is None or document.cover_type is None or not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No cover image.")
+    # nosniff: the browser must treat it as the saved image type and nothing
+    # else, even if the file's contents look like something else.
+    return FileResponse(
+        path,
+        media_type=document.cover_type,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.get("/{document_id}/progress", response_model=Progress)
@@ -166,5 +188,5 @@ async def delete_document(
     ).all()
     await session.delete(document)
     await session.commit()
-    remove_files(list(audio_paths))
+    remove_files([*audio_paths, str(cover_path(document_id))])
     return Response(status_code=status.HTTP_204_NO_CONTENT)

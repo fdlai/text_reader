@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     audio_dir: str = "storage/audio"
     voices_dir: str = "storage/voices"
     samples_dir: str = "storage/samples"
+    covers_dir: str = "storage/covers"
     cors_origins: list[str] = ["http://localhost:5173"]
 
 

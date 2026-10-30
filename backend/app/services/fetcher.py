@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 import socket
+from collections.abc import Callable
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -44,7 +45,36 @@ async def _assert_public_host(url: str) -> None:
             )
 
 
+# Image types browsers can show. SVG is left out on purpose: it can contain
+# scripts, which would run if the image were opened from our own server.
+IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"}
+
+
 async def fetch_html(url: str) -> str:
+    body, _, encoding = await _fetch(
+        url,
+        lambda t: "html" in t or "xml" in t,
+        "The URL does not point to an HTML page.",
+    )
+    return body.decode(encoding or "utf-8", errors="replace")
+
+
+async def fetch_image(url: str) -> tuple[bytes, str]:
+    """Download an image. Returns its bytes and type (e.g. "image/jpeg")."""
+    body, content_type, _ = await _fetch(
+        url, lambda t: t in IMAGE_TYPES, "The URL does not point to an image."
+    )
+    return body, content_type
+
+
+async def _fetch(
+    url: str, accept: Callable[[str], bool], wrong_type: str
+) -> tuple[bytes, str, str | None]:
+    """Download a URL, refusing private addresses (also after redirects),
+    responses over MAX_BYTES, and content types accept() says no to.
+
+    Returns the body, its content type and its text encoding, if any.
+    """
     async with httpx.AsyncClient(
         timeout=TIMEOUT, headers=HEADERS, follow_redirects=False
     ) as client:
@@ -64,16 +94,22 @@ async def fetch_html(url: str) -> str:
                             f"The site responded with status {response.status_code}."
                         )
 
-                    content_type = response.headers.get("content-type", "")
-                    if "html" not in content_type and "xml" not in content_type:
-                        raise FetchError("The URL does not point to an HTML page.")
+                    # e.g. "text/html; charset=utf-8" -> "text/html"
+                    content_type = (
+                        response.headers.get("content-type", "")
+                        .split(";")[0]
+                        .strip()
+                        .lower()
+                    )
+                    if not accept(content_type):
+                        raise FetchError(wrong_type)
 
                     body = bytearray()
                     async for part in response.aiter_bytes():
                         body.extend(part)
                         if len(body) > MAX_BYTES:
                             raise FetchError("The page is too large.")
-                    return body.decode(response.encoding or "utf-8", errors="replace")
+                    return bytes(body), content_type, response.encoding
             except httpx.HTTPError:
                 raise FetchError("Could not fetch the page.")
 

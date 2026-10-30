@@ -29,6 +29,32 @@ function Segmented({ options, value, onChange }) {
   );
 }
 
+// An on/off switch with a label and a short description.
+function Toggle({ label, description, checked, onChange }) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-4">
+      <span>
+        <span className="block text-sm">{label}</span>
+        <span className="block text-xs text-gray-500">{description}</span>
+      </span>
+      <button
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+          checked ? "bg-black" : "bg-gray-300"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-5" : ""
+          }`}
+        />
+      </button>
+    </label>
+  );
+}
+
 function Section({ title, children }) {
   return (
     <section className="space-y-2">
@@ -93,31 +119,21 @@ export default function DisplayTab() {
           value={prefs.align}
           onChange={(align) => update({ align })}
         />
+        <Toggle
+          label="Hyphenate words"
+          description="Split long words at the end of a line, for more even spacing"
+          checked={prefs.hyphenate}
+          onChange={(hyphenate) => update({ hyphenate })}
+        />
       </Section>
 
       <Section title="Highlight">
-        <label className="flex cursor-pointer items-center justify-between gap-4">
-          <span>
-            <span className="block text-sm">Highlight words</span>
-            <span className="block text-xs text-gray-500">
-              While reading, highlight the current word
-            </span>
-          </span>
-          <button
-            role="switch"
-            aria-checked={prefs.highlight_words}
-            onClick={() => update({ highlight_words: !prefs.highlight_words })}
-            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-              prefs.highlight_words ? "bg-black" : "bg-gray-300"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                prefs.highlight_words ? "translate-x-5" : ""
-              }`}
-            />
-          </button>
-        </label>
+        <Toggle
+          label="Highlight words"
+          description="While reading, highlight the current word"
+          checked={prefs.highlight_words}
+          onChange={(highlight_words) => update({ highlight_words })}
+        />
       </Section>
 
       <Section title="Highlight color">

@@ -70,6 +70,8 @@ export const deleteVoice = (id) =>
 // A saved clip of the voice, made on first request (see the backend).
 export const voiceSampleUrl = (id) => `/api/voice-presets/${id}/sample`;
 
+export const coverUrl = (documentId) => `/api/documents/${documentId}/cover`;
+
 // Without voice.text, the voice reads the standard sample text, so the
 // clip can be saved as the voice's sample (see createVoice's sample_b64).
 export const previewVoice = (voice) =>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   deleteDocumentAudio,
   generateAudio,
@@ -82,6 +82,7 @@ export default function Reader() {
   const { prefs, update, panel, setPanel, togglePanel } = usePreferences();
   const engines = useEngines();
   const confirm = useConfirm();
+  const navigate = useNavigate();
   const { updateChunkAudio } = player;
   const [doc, setDoc] = useState(null);
   const [voices, setVoices] = useState([]);
@@ -122,6 +123,15 @@ export default function Reader() {
       })
       .catch((e) => setError(e.message));
   }, [documentId]);
+
+  // The browser tab shows the article's title while it's open.
+  useEffect(() => {
+    if (!doc) return;
+    document.title = `${doc.title} · Audifire`;
+    return () => {
+      document.title = "Audifire";
+    };
+  }, [doc]);
 
   useEffect(() => {
     if (!presetId) return;
@@ -229,8 +239,9 @@ export default function Reader() {
     skipRef.current = sameSession ? player.skip : null;
   });
 
-  // Keyboard shortcuts: P opens/closes Preferences, Space plays/pauses,
-  // Left/Right arrows go back/forward 15 seconds (hold to keep skipping).
+  // Keyboard shortcuts: P opens/closes Preferences, L goes to the Library,
+  // Space plays/pauses, Left/Right arrows go back/forward 15 seconds (hold
+  // to keep skipping).
   // Ignored while typing in a box. Space is also left alone on a focused
   // button (the browser uses it to press that button), and when nothing can
   // play, so it still scrolls the page then.
@@ -244,6 +255,10 @@ export default function Reader() {
         return;
       if (e.key === "p" || e.key === "P") {
         if (!e.repeat) togglePanel();
+        return;
+      }
+      if (e.key === "l" || e.key === "L") {
+        navigate("/");
         return;
       }
       const playPause = playPauseRef.current;
@@ -260,7 +275,7 @@ export default function Reader() {
     }
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [togglePanel]);
+  }, [togglePanel, navigate]);
 
   // "Play from here": when a selection is finished inside the text, find its
   // first word and show a button above the selection.
@@ -489,19 +504,7 @@ export default function Reader() {
     // The extra bottom space keeps the floating button above the player bar
     // from covering the last line.
     <article className="pb-16">
-      <div className="flex items-center justify-between">
-        <Link to="/" className="text-sm text-gray-500 hover:underline">
-          &larr; Library
-        </Link>
-        <button
-          onClick={() => setPanel({ prefill: null })}
-          title="Preferences (P)"
-          className="text-sm text-gray-500 hover:text-black"
-        >
-          ⚙ Preferences
-        </button>
-      </div>
-      <h1 className="mt-4 text-3xl font-semibold">{doc.title}</h1>
+      <h1 className="text-3xl font-semibold">{doc.title}</h1>
       <a
         href={doc.source_url}
         target="_blank"
@@ -625,6 +628,8 @@ export default function Reader() {
           fontSize: `${prefs.font_size}px`,
           lineHeight: 1.8,
           textAlign: prefs.align,
+          // The browser's English hyphenation rules (from <html lang="en">).
+          hyphens: prefs.hyphenate ? "auto" : "manual",
           // See-through tints used by the highlights (see ChunkText).
           "--highlight-word": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.4)`,
           "--highlight-chunk": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.15)`,

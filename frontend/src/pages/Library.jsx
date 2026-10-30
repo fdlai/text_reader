@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { createDocument, deleteDocument, listDocuments } from "../api";
+import Cover from "../components/Cover";
 import ListeningStatus from "../components/ListeningStatus";
 import { useConfirm } from "../context/confirm";
 import { usePlayer } from "../context/PlayerContext";
@@ -94,14 +95,22 @@ export default function Library() {
             key={doc.id}
             className="flex items-center justify-between gap-4 py-3"
           >
-            <Link to={`/documents/${doc.id}`} className="min-w-0 flex-1">
-              <p className="truncate font-medium">{doc.title}</p>
-              <p className="truncate text-sm text-gray-500">{doc.source_url}</p>
-              <ListeningStatus
-                finished={doc.finished}
-                fraction={doc.fraction}
-                secondsLeft={doc.seconds_left}
-              />
+            <Link
+              to={`/documents/${doc.id}`}
+              className="flex min-w-0 flex-1 items-center gap-4"
+            >
+              <Cover doc={doc} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{doc.title}</p>
+                <p className="truncate text-sm text-gray-500">
+                  {doc.source_url}
+                </p>
+                <ListeningStatus
+                  finished={doc.finished}
+                  fraction={doc.fraction}
+                  secondsLeft={doc.seconds_left}
+                />
+              </div>
             </Link>
             <button
               onClick={() => handleDelete(doc)}
