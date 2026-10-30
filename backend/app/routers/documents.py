@@ -1,20 +1,29 @@
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_session
-from app.models import AudioFile, Chunk, Document, PlaybackProgress
-from app.schemas import DocumentCreate, DocumentDetail, LibraryItem, Progress
+from app.models import AudioFile, Chunk, Collection, Document, PlaybackProgress
+from app.schemas import (
+    DocumentCreate,
+    DocumentDetail,
+    DocumentIds,
+    DocumentsMove,
+    LibraryItem,
+    Progress,
+)
 from app.services.chunker import chunk_text
 from app.services.covers import cover_path, save_cover
 from app.services.extractor import ExtractionError, extract_article
 from app.services.fetcher import FetchError, fetch_html
-from app.services.generation import cancel_generation, remove_files
+from app.services.deletion import delete_documents
+from app.services.next_link import without_fragment
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -26,7 +35,16 @@ SECONDS_PER_CHAR = 0.065
 async def create_document(
     body: DocumentCreate, session: AsyncSession = Depends(get_session)
 ):
-    url = str(body.url)
+    url = without_fragment(str(body.url))
+    if body.collection_id is not None and not await session.get(
+        Collection, body.collection_id
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Collection not found.")
+    # Checked before downloading anything. The unique source_url below also
+    # catches the rare case of the same page being added twice at once.
+    existing = await session.scalar(select(Document.id).where(Document.source_url == url))
+    if existing is not None:
+        raise await _already_added(session, existing)
     try:
         html = await fetch_html(url)
         article = await extract_article(html, url)
@@ -34,33 +52,138 @@ async def create_document(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
     document = Document(
+        collection_id=body.collection_id,
         source_url=url,
         title=article.title,
         text=article.text,
+        next_url=article.next_url,
         chunks=[Chunk(**c) for c in chunk_text(article.text)],
     )
     session.add(document)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        existing = await session.scalar(
+            select(Document.id).where(Document.source_url == url)
+        )
+        raise await _already_added(session, existing)
     # Saved after the document, since the image is named by its id.
     document.cover_type = await save_cover(document.id, article.image_url)
     if document.cover_type:
         await session.commit()
-    return document
+    return await _detail(session, document)
+
+
+async def _already_added(session: AsyncSession, document_id: int) -> HTTPException:
+    # Names where it is, and the id lets the page link to it.
+    name = await session.scalar(
+        select(Collection.name)
+        .join(Document, Document.collection_id == Collection.id)
+        .where(Document.id == document_id)
+    )
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        {
+            "message": f"That page is already in “{name or 'Unsorted'}”.",
+            "document_id": document_id,
+        },
+    )
+
+
+async def _detail(session: AsyncSession, document: Document) -> DocumentDetail:
+    detail = DocumentDetail.model_validate(document)
+    if document.collection_id is not None:
+        detail.collection_name = await session.scalar(
+            select(Collection.name).where(Collection.id == document.collection_id)
+        )
+    # Looked up each time rather than saved, so it's right even if the next
+    # part was added from the Library, or deleted, since this one was added.
+    if document.next_url:
+        detail.next_document_id = await session.scalar(
+            select(Document.id).where(Document.source_url == document.next_url)
+        )
+    return detail
+
+
+@router.post("/move", status_code=status.HTTP_204_NO_CONTENT)
+async def move_documents(
+    body: DocumentsMove, session: AsyncSession = Depends(get_session)
+):
+    """Moves documents into a collection, in one go however many there are."""
+    if await session.get(Collection, body.collection_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Collection not found.")
+    await session.execute(
+        update(Document)
+        .where(Document.id.in_(body.document_ids))
+        .values(collection_id=body.collection_id)
+    )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_many_documents(
+    body: DocumentIds, session: AsyncSession = Depends(get_session)
+):
+    """Deletes several documents at once, the same way as one (POST, since a
+    DELETE request doesn't normally carry a list). Ids that don't exist are
+    skipped."""
+    await delete_documents(session, body.document_ids)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("", response_model=list[LibraryItem])
-async def list_documents(session: AsyncSession = Depends(get_session)):
-    documents = await session.scalars(
+async def list_documents(
+    collection_id: int | None = None,
+    unsorted: bool = False,
+    session: AsyncSession = Depends(get_session),
+):
+    """The documents in one collection, or with unsorted=true those in none.
+    With neither, every document."""
+    query = (
         select(Document)
         .order_by(Document.created_at.desc())
         .options(selectinload(Document.progress))
     )
+    if collection_id is not None:
+        query = query.where(Document.collection_id == collection_id)
+    elif unsorted:
+        query = query.where(Document.collection_id.is_(None))
+    return await _library_items(session, (await session.scalars(query)).all())
+
+
+@router.get("/recent", response_model=list[LibraryItem])
+async def recent_documents(
+    limit: int = Query(default=4, ge=1, le=20),
+    session: AsyncSession = Depends(get_session),
+):
+    """The documents most recently listened to and not finished, from any
+    collection, most recent first."""
+    documents = (
+        await session.scalars(
+            select(Document)
+            .join(PlaybackProgress)
+            .where(PlaybackProgress.finished.is_(False))
+            .order_by(PlaybackProgress.updated_at.desc())
+            .limit(limit)
+            .options(selectinload(Document.progress))
+        )
+    ).all()
+    return await _library_items(session, documents)
+
+
+async def _library_items(
+    session: AsyncSession, documents: list[Document]
+) -> list[LibraryItem]:
+    """The documents as Library entries, in the same order."""
+    ids = [d.id for d in documents]
     # Each document's chunk lengths, in order.
     chunk_chars: dict[int, list[int]] = defaultdict(list)
     for document_id, chars in await session.execute(
-        select(Chunk.document_id, Chunk.char_count).order_by(
-            Chunk.document_id, Chunk.index
-        )
+        select(Chunk.document_id, Chunk.char_count)
+        .where(Chunk.document_id.in_(ids))
+        .order_by(Chunk.document_id, Chunk.index)
     ):
         chunk_chars[document_id].append(chars)
     # Each document's speaking pace, from the audio made for it so far (any
@@ -73,7 +196,9 @@ async def list_documents(session: AsyncSession = Depends(get_session)):
                     func.sum(AudioFile.duration_sec) / func.sum(Chunk.char_count),
                 )
                 .join(AudioFile, AudioFile.chunk_id == Chunk.id)
-                .where(AudioFile.duration_sec.is_not(None))
+                .where(
+                    AudioFile.duration_sec.is_not(None), Chunk.document_id.in_(ids)
+                )
                 .group_by(Chunk.document_id)
             )
         ).all()
@@ -122,7 +247,7 @@ async def get_document(document_id: int, session: AsyncSession = Depends(get_ses
     )
     if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
-    return document
+    return await _detail(session, document)
 
 
 @router.get("/{document_id}/cover")
@@ -174,19 +299,7 @@ async def save_progress(
 async def delete_document(
     document_id: int, session: AsyncSession = Depends(get_session)
 ):
-    document = await session.get(Document, document_id)
-    if document is None:
+    if await session.get(Document, document_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
-    # Otherwise a running job would keep generating audio for deleted chunks.
-    await cancel_generation(document_id=document_id)
-    audio_paths = (
-        await session.scalars(
-            select(AudioFile.file_path)
-            .join(Chunk, Chunk.id == AudioFile.chunk_id)
-            .where(Chunk.document_id == document_id)
-        )
-    ).all()
-    await session.delete(document)
-    await session.commit()
-    remove_files([*audio_paths, str(cover_path(document_id))])
+    await delete_documents(session, [document_id])
     return Response(status_code=status.HTTP_204_NO_CONTENT)

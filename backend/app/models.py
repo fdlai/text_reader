@@ -17,11 +17,33 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
+class Collection(Base):
+    """A group of documents, such as one novel's chapters. Documents without
+    one are shown as "Unsorted", which isn't stored as a collection."""
+
+    __tablename__ = "collections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    source_url: Mapped[str] = mapped_column(Text)
+    # None means Unsorted. Deleting a collection leaves its documents
+    # Unsorted unless they're deleted with it.
+    collection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("collections.id", ondelete="SET NULL"), index=True
+    )
+    # Indexed, so finding a document by its URL stays fast however many
+    # there are. Unique: the same page can't be added twice.
+    source_url: Mapped[str] = mapped_column(Text, unique=True)
+    # The page's link to its next part (e.g. the next chapter), if it has one.
+    next_url: Mapped[str | None] = mapped_column(Text)
     title: Mapped[str] = mapped_column(String(500))
     text: Mapped[str] = mapped_column(Text)
     # The type of the saved cover image (e.g. "image/jpeg"), or None if the

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useMatch } from "react-router-dom";
+import { useBreadcrumb } from "../context/breadcrumb";
 import { usePreferences } from "../context/preferences";
 import Logo from "./Logo";
 
@@ -27,12 +28,32 @@ function useScrollingDown() {
 // down, so the text gets the whole screen, and comes back on scrolling up.
 export default function Header() {
   const { togglePanel } = usePreferences();
+  const { breadcrumb } = useBreadcrumb();
   const reading = useMatch("/documents/:id");
-  const library = useMatch("/");
+  const home = useMatch("/");
+  const collection = useMatch("/collections/:id");
   const voices = useMatch("/voices");
   const hidden = useScrollingDown();
 
-  // An article counts as being in the Library, so Library stays highlighted.
+  // P opens/closes Preferences on any page. Ignored while typing in a box,
+  // with Ctrl/Alt held (e.g. Ctrl+P prints), or while a popup is open.
+  useEffect(() => {
+    function handleKey(e) {
+      if (e.key !== "p" && e.key !== "P") return;
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (
+        e.target.closest("input, select, textarea, [contenteditable], dialog")
+      )
+        return;
+      togglePanel();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [togglePanel]);
+  const library = home || collection;
+
+  // Collections and articles count as being in the Library, so Library
+  // stays highlighted.
   const navClass = (active) =>
     active ? "font-medium text-black" : "text-gray-600 hover:text-black";
 
@@ -49,7 +70,6 @@ export default function Header() {
         <nav className="flex gap-5 text-sm">
           <Link
             to="/"
-            title={reading ? "Library (L)" : undefined}
             aria-current={library ? "page" : undefined}
             className={navClass(library || reading)}
           >
@@ -63,17 +83,26 @@ export default function Header() {
             Voices
           </Link>
         </nav>
-        {/* The Preferences panel belongs to the article page. */}
-        {reading && (
-          <button
-            onClick={togglePanel}
-            title="Preferences (P)"
-            aria-label="Preferences"
-            className="ml-auto text-lg text-gray-600 hover:text-black"
+        {/* Where the open article is, linking back there. Cut short with
+            "…" rather than wrapping; hovering shows the whole name. */}
+        {reading && breadcrumb && (
+          <Link
+            to={breadcrumb.to}
+            title={`Back to ${breadcrumb.label} (L)`}
+            className="-ml-3 min-w-0 truncate border-l border-gray-300 pl-5 text-sm text-gray-600 hover:text-black"
           >
-            ⚙
-          </button>
+            ‹ {breadcrumb.label}
+          </Link>
         )}
+        <button
+          onClick={togglePanel}
+          title="Preferences (P)"
+          aria-label="Preferences"
+          data-preferences-toggle
+          className="ml-auto text-lg text-gray-600 hover:text-black"
+        >
+          ⚙
+        </button>
       </div>
     </header>
   );

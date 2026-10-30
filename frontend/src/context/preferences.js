@@ -14,23 +14,73 @@ export const DEFAULTS = {
   recent_voices: [],
 };
 
-// Fonts that come with the operating system, so nothing is downloaded.
+// "System" fonts come with the operating system, so they load instantly but
+// look slightly different on each one. The others are downloaded from
+// public/fonts (see src/fonts.css), only once chosen, and look the same
+// everywhere. Groups become sections of the Font dropdown.
 export const FONTS = {
   sans: {
     label: "Sans-serif",
+    group: "System",
     family: 'ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif',
   },
   serif: {
     label: "Serif (Georgia)",
+    group: "System",
     family: 'Georgia, Cambria, "Times New Roman", serif',
   },
   book: {
     label: "Book (Palatino)",
+    group: "System",
     family: '"Palatino Linotype", Palatino, "Book Antiqua", serif',
   },
   verdana: {
     label: "Verdana (extra legible)",
+    group: "System",
     family: "Verdana, Tahoma, sans-serif",
+  },
+  literata: { label: "Literata", group: "Serif", family: "Literata, serif" },
+  merriweather: {
+    label: "Merriweather",
+    group: "Serif",
+    family: "Merriweather, serif",
+  },
+  source_serif: {
+    label: "Source Serif",
+    group: "Serif",
+    family: '"Source Serif 4", serif',
+  },
+  garamond: {
+    label: "EB Garamond",
+    group: "Serif",
+    family: '"EB Garamond", serif',
+  },
+  lora: { label: "Lora", group: "Serif", family: "Lora, serif" },
+  inter: { label: "Inter", group: "Sans-serif", family: "Inter, sans-serif" },
+  atkinson: {
+    label: "Atkinson Hyperlegible",
+    group: "Sans-serif",
+    family: '"Atkinson Hyperlegible", sans-serif',
+  },
+  lexend: {
+    label: "Lexend",
+    group: "Sans-serif",
+    family: "Lexend, sans-serif",
+  },
+  nunito: {
+    label: "Nunito",
+    group: "Sans-serif",
+    family: "Nunito, sans-serif",
+  },
+  opendyslexic: {
+    label: "OpenDyslexic",
+    group: "Specialty",
+    family: "OpenDyslexic, sans-serif",
+  },
+  ia_writer: {
+    label: "iA Writer Quattro",
+    group: "Specialty",
+    family: '"iA Writer Quattro", sans-serif',
   },
 };
 

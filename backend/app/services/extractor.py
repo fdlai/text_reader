@@ -4,6 +4,8 @@ from urllib.parse import urljoin
 
 import trafilatura
 
+from app.services.next_link import find_next_url
+
 
 class ExtractionError(Exception):
     pass
@@ -15,6 +17,8 @@ class Article:
     text: str
     # The page's preview image (from its og:image tag), as a full URL.
     image_url: str | None
+    # The link to the page's next part (e.g. the next chapter), if it has one.
+    next_url: str | None
 
 
 def _extract(html: str, url: str) -> Article:
@@ -35,7 +39,12 @@ def _extract(html: str, url: str) -> Article:
     # <meta property="og:image" content="/covers/book.jpg">, which trafilatura
     # reads. The address may be relative to the page, so make it complete.
     image = metadata.image if metadata and metadata.image else None
-    return Article(title[:500], text.strip(), urljoin(url, image) if image else None)
+    return Article(
+        title[:500],
+        text.strip(),
+        urljoin(url, image) if image else None,
+        find_next_url(html, url),
+    )
 
 
 async def extract_article(html: str, url: str) -> Article:

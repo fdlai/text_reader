@@ -2,7 +2,7 @@ import { useState } from "react";
 import { coverUrl } from "../api";
 
 // A number from the title, so each article keeps the same placeholder color.
-function hue(title) {
+export function hue(title) {
   let h = 0;
   for (const ch of title) h = (h * 31 + ch.codePointAt(0)) % 360;
   return h;
@@ -10,10 +10,11 @@ function hue(title) {
 
 // An article's cover image in a fixed-size box. Images of any shape fill it
 // and are cropped to fit (object-cover), so every row lines up. Articles
-// without an image get a tile with their first letter instead.
-export default function Cover({ doc }) {
+// without an image get a tile with their first letter instead. size is the
+// box's Tailwind size classes.
+export default function Cover({ doc, size = "h-20 w-16 text-2xl" }) {
   const [failed, setFailed] = useState(false);
-  const box = "h-20 w-16 shrink-0 overflow-hidden rounded-md";
+  const box = `${size} shrink-0 overflow-hidden rounded-md`;
 
   if (doc.has_cover && !failed) {
     return (
@@ -33,7 +34,7 @@ export default function Cover({ doc }) {
       aria-hidden="true"
       // See-through, so it suits both light and dark themes.
       style={{ backgroundColor: `hsl(${hue(doc.title)} 60% 50% / 0.25)` }}
-      className={`${box} flex items-center justify-center text-2xl font-semibold text-gray-600`}
+      className={`${box} flex items-center justify-center font-semibold text-gray-600`}
     >
       {letter}
     </div>

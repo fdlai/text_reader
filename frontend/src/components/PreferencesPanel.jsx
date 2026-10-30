@@ -7,9 +7,10 @@ const TABS = [
   { id: "pronunciations", label: "Pronunciations" },
 ];
 
-// A panel that slides over the right side of the reader, so preferences can
+// A panel that slides over the right side of the page, so preferences can
 // be changed while listening. "Fix pronunciation" opens it with a prefill,
-// which starts it on the Pronunciations tab.
+// which starts it on the Pronunciations tab. voice and
+// onPronunciationsChange only come from the Reader.
 export default function PreferencesPanel({
   onClose,
   prefill,
@@ -21,14 +22,15 @@ export default function PreferencesPanel({
 
   // Close when clicking outside the panel, or pressing Escape. Clicks on the
   // player bar don't count, so playback can be controlled while the panel
-  // is open (and its ⚙ button can close the panel itself). Neither do clicks
-  // and keys in a confirmation dialog, e.g. one opened from this panel.
+  // is open. Nor do clicks on a ⚙ button (header or player bar): it closes
+  // the panel itself, and otherwise would close it and reopen it. Neither do
+  // clicks and keys in a confirmation dialog, e.g. one opened from this panel.
   useEffect(() => {
     function handlePointerDown(e) {
       if (e.target.closest("dialog")) return;
       if (
         !ref.current.contains(e.target) &&
-        !e.target.closest("[data-player-bar]")
+        !e.target.closest("[data-player-bar], [data-preferences-toggle]")
       ) {
         onClose();
       }

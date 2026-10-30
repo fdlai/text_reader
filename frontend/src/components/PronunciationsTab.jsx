@@ -150,8 +150,10 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
         />
         <p className="text-xs text-gray-500">
           Spell it the way it should sound. Hyphens and capitals can help, e.g.
-          "Woo-DAHNG". Previews use the voice selected in the reader
-          {voice ? ` (${voice.name})` : ""}.
+          "Woo-DAHNG".{" "}
+          {voice
+            ? `Previews use the voice selected in the reader (${voice.name}).`
+            : "To hear a preview, open an article: it uses the voice selected there."}
         </p>
         <div className="flex flex-wrap gap-2">
           <button

@@ -11,6 +11,7 @@ from app.database import SessionLocal, get_session
 from app.models import VoicePreset
 from app.routers import (
     audio,
+    collections,
     custom_voices,
     documents,
     engines,
@@ -58,6 +59,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(collections.router)
 app.include_router(documents.router)
 app.include_router(voices.router)
 app.include_router(audio.router)

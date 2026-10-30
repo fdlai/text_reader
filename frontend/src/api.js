@@ -2,15 +2,20 @@ async function request(path, options, parse = (r) => r.json()) {
   const response = await fetch(`/api${path}`, options);
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    let detail;
     try {
       const body = await response.json();
-      if (typeof body.detail === "string") message = body.detail;
-      else if (Array.isArray(body.detail))
-        message = body.detail[0]?.msg ?? message;
+      detail = body.detail;
+      if (typeof detail === "string") message = detail;
+      else if (Array.isArray(detail)) message = detail[0]?.msg ?? message;
+      // Some errors send extra information along with their message.
+      else if (detail?.message) message = detail.message;
     } catch {
       // response had no JSON body
     }
-    throw new Error(message);
+    const error = new Error(message);
+    error.detail = detail;
+    throw error;
   }
   return response.status === 204 ? null : parse(response);
 }
@@ -21,19 +26,52 @@ const json = (method, body) => ({
   body: JSON.stringify(body),
 });
 
-export const listDocuments = () => request("/documents");
+// Includes Unsorted (id null) last, if anything is in it.
+export const listCollections = () => request("/collections");
+
+export const getCollection = (id) => request(`/collections/${id}`);
+
+export const createCollection = (name) =>
+  request("/collections", json("POST", { name }));
+
+export const renameCollection = (id, name) =>
+  request(`/collections/${id}`, json("PATCH", { name }));
+
+// Its articles move to Unsorted, unless deleteDocuments is true.
+export const deleteCollection = (id, deleteDocuments) =>
+  request(`/collections/${id}?delete_documents=${deleteDocuments}`, {
+    method: "DELETE",
+  });
+
+// The documents in a collection; collectionId null means Unsorted.
+export const listDocuments = (collectionId) =>
+  request(
+    collectionId === null
+      ? "/documents?unsorted=true"
+      : `/documents?collection_id=${collectionId}`,
+  );
+
+// The unfinished articles listened to most recently, from any collection.
+export const listRecentDocuments = () => request("/documents/recent");
 
 export const getDocument = (id) => request(`/documents/${id}`);
 
-export const createDocument = (url) =>
-  request("/documents", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
-  });
+export const moveDocuments = (documentIds, collectionId) =>
+  request(
+    "/documents/move",
+    json("POST", { document_ids: documentIds, collection_id: collectionId }),
+  );
+
+// If the page is already in the Library, fails with error.detail.document_id
+// set to the copy that's there.
+export const createDocument = (url, collectionId) =>
+  request("/documents", json("POST", { url, collection_id: collectionId }));
 
 export const deleteDocument = (id) =>
   request(`/documents/${id}`, { method: "DELETE" });
+
+export const deleteDocuments = (ids) =>
+  request("/documents/delete", json("POST", { document_ids: ids }));
 
 export const getProgress = (id) => request(`/documents/${id}/progress`);
 

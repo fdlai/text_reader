@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  createDocument,
   deleteDocumentAudio,
   generateAudio,
   getAudioStatus,
   getDocument,
   getProgress,
   listVoices,
+  moveDocuments,
   regenerateOutdated,
 } from "../api";
 import ChunkText from "../components/ChunkText";
 import EngineNotice from "../components/EngineNotice";
+import MoveDialog from "../components/MoveDialog";
 import PreferencesPanel from "../components/PreferencesPanel";
 import VoicePicker from "../components/VoicePicker";
+import { useBreadcrumb } from "../context/breadcrumb";
 import { useConfirm } from "../context/confirm";
 import { usePlayer } from "../context/PlayerContext";
 import {
@@ -20,6 +24,7 @@ import {
   HIGHLIGHT_COLORS,
   usePreferences,
 } from "../context/preferences";
+import { collectionPath } from "../paths";
 import { useEngines } from "../useEngines";
 import { chunkLength, wordIndexAt } from "../timeline";
 
@@ -79,10 +84,11 @@ function readyAudio(status) {
 export default function Reader() {
   const documentId = Number(useParams().id);
   const player = usePlayer();
-  const { prefs, update, panel, setPanel, togglePanel } = usePreferences();
+  const { prefs, update, panel, setPanel } = usePreferences();
   const engines = useEngines();
   const confirm = useConfirm();
   const navigate = useNavigate();
+  const { setBreadcrumb } = useBreadcrumb();
   const { updateChunkAudio } = player;
   const [doc, setDoc] = useState(null);
   const [voices, setVoices] = useState([]);
@@ -97,6 +103,8 @@ export default function Reader() {
   const [progress, setProgress] = useState(null); // where listening left off
   const [pollKey, setPollKey] = useState(0);
   const [error, setError] = useState("");
+  const [addingNext, setAddingNext] = useState(false);
+  const [moving, setMoving] = useState(false); // the Move popup is open
   // When true, the page scrolls to keep the text being read on screen.
   const [following, setFollowing] = useState(true);
   // { chunkIndex, wordIndex, text, top, left } while text is selected.
@@ -132,6 +140,16 @@ export default function Reader() {
       document.title = "Audifire";
     };
   }, [doc]);
+
+  // The header links back to the article's collection while it's open.
+  const libraryPath = doc ? collectionPath(doc.collection_id) : "/";
+  const collectionName = doc?.collection_name ?? "Unsorted";
+  const loaded = doc !== null;
+  useEffect(() => {
+    if (!loaded) return;
+    setBreadcrumb({ to: libraryPath, label: collectionName });
+    return () => setBreadcrumb(null);
+  }, [loaded, libraryPath, collectionName, setBreadcrumb]);
 
   useEffect(() => {
     if (!presetId) return;
@@ -220,8 +238,6 @@ export default function Reader() {
   // The same function every render, so the panel doesn't re-add its
   // listeners each time the page updates during playback.
   const closePanel = useCallback(() => setPanel(null), [setPanel]);
-  // Close the panel when leaving the article, so it isn't open on the next page.
-  useEffect(() => closePanel, [closePanel]);
 
   // What Space does right now: play/pause, or null if nothing can play yet.
   // Likewise for the arrow keys: skip, or null if this article isn't the one
@@ -239,9 +255,9 @@ export default function Reader() {
     skipRef.current = sameSession ? player.skip : null;
   });
 
-  // Keyboard shortcuts: P opens/closes Preferences, L goes to the Library,
-  // Space plays/pauses, Left/Right arrows go back/forward 15 seconds (hold
-  // to keep skipping).
+  // Keyboard shortcuts: L goes back to the collection, Space plays/pauses,
+  // Left/Right arrows go back/forward 15 seconds (hold to keep skipping).
+  // (P for Preferences works on every page; see Header.)
   // Ignored while typing in a box. Space is also left alone on a focused
   // button (the browser uses it to press that button), and when nothing can
   // play, so it still scrolls the page then.
@@ -253,12 +269,9 @@ export default function Reader() {
         e.target.closest("input, select, textarea, [contenteditable], dialog")
       )
         return;
-      if (e.key === "p" || e.key === "P") {
-        if (!e.repeat) togglePanel();
-        return;
-      }
+      // Back to the list this article is in.
       if (e.key === "l" || e.key === "L") {
-        navigate("/");
+        navigate(libraryPath);
         return;
       }
       const playPause = playPauseRef.current;
@@ -275,7 +288,7 @@ export default function Reader() {
     }
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [togglePanel, navigate]);
+  }, [navigate, libraryPath]);
 
   // "Play from here": when a selection is finished inside the text, find its
   // first word and show a button above the selection.
@@ -381,6 +394,42 @@ export default function Reader() {
     } catch (e) {
       setError(e.message);
     }
+  }
+
+  // Adds the next part to this part's collection (unless it's in the Library
+  // already) and starts generating its audio with the current voice, then
+  // opens it if `open`.
+  async function handleNextPart(open) {
+    let id = doc.next_document_id;
+    if (id == null) {
+      setError("");
+      setAddingNext(true);
+      try {
+        id = (await createDocument(doc.next_url, doc.collection_id)).id;
+        // Joins the back of the queue, so this part's audio still comes first.
+        if (presetId && canGenerate) await generateAudio(id, presetId);
+      } catch (e) {
+        // Already in the Library after all (e.g. just added from the Library
+        // page): the error says which one, so that one is used.
+        id ??= e.detail?.document_id;
+        if (e.detail?.document_id == null) setError(e.message);
+      } finally {
+        setAddingNext(false);
+      }
+      if (id == null) return;
+      setDoc((d) => ({ ...d, next_document_id: id }));
+    }
+    if (open) navigate(`/documents/${id}`);
+  }
+
+  async function handleMove(target) {
+    await moveDocuments([doc.id], target.id);
+    setDoc((d) => ({
+      ...d,
+      collection_id: target.id,
+      collection_name: target.name,
+    }));
+    setMoving(false);
   }
 
   function backToCurrent() {
@@ -513,6 +562,24 @@ export default function Reader() {
       >
         {doc.source_url}
       </a>
+      <p className="mt-1 text-sm text-gray-500">
+        In{" "}
+        <Link to={libraryPath} className="hover:underline">
+          {collectionName}
+        </Link>{" "}
+        ·{" "}
+        <button onClick={() => setMoving(true)} className="hover:text-black">
+          Move
+        </button>
+      </p>
+      {moving && (
+        <MoveDialog
+          count={1}
+          currentId={doc.collection_id}
+          onMove={handleMove}
+          onClose={() => setMoving(false)}
+        />
+      )}
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <VoicePicker
@@ -581,9 +648,25 @@ export default function Reader() {
           </button>
         )}
 
-        <Link to="/voices" className="text-sm text-gray-500 hover:underline">
-          Manage voices
-        </Link>
+        {/* Only pages with a next part (e.g. a novel's chapters) have one. */}
+        {doc.next_url &&
+          (doc.next_document_id ? (
+            <Link
+              to={`/documents/${doc.next_document_id}`}
+              className="text-sm text-gray-500 hover:underline"
+            >
+              Open next part →
+            </Link>
+          ) : (
+            <button
+              onClick={() => handleNextPart(false)}
+              disabled={addingNext}
+              title="Adds it to the Library and starts generating its audio"
+              className="text-sm text-gray-500 hover:underline disabled:opacity-50"
+            >
+              {addingNext ? "Adding next part..." : "Add next part"}
+            </button>
+          ))}
       </div>
 
       {status && !allReady && (
@@ -699,12 +782,22 @@ export default function Reader() {
       {finished && isReady(0) ? (
         <div className="fixed bottom-28 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black py-1.5 pr-1.5 pl-4 text-sm text-white shadow-lg">
           ✓ Finished
+          {/* With a next part, that's the main button and this one is quieter. */}
           <button
             onClick={() => play(0, 0)}
-            className="rounded-full bg-white px-3 py-1 text-black"
+            className={`rounded-full px-3 py-1 ${doc.next_url ? "border border-white/40 hover:bg-white/15" : "bg-white text-black"}`}
           >
             Listen again
           </button>
+          {doc.next_url && (
+            <button
+              onClick={() => handleNextPart(true)}
+              disabled={addingNext}
+              className="rounded-full bg-white px-3 py-1 text-black disabled:opacity-50"
+            >
+              {addingNext ? "Adding..." : "Next part →"}
+            </button>
+          )}
         </div>
       ) : (
         sameSession &&

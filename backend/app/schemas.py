@@ -1,13 +1,61 @@
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, computed_field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    StringConstraints,
+    computed_field,
+)
 
 from app.services.chunker import paragraph_words
 
 
+class CollectionCreate(BaseModel):
+    name: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
+    ]
+
+
+class CollectionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+
+
+# Enough of a document to show its cover (or a placeholder for it).
+class CoverItem(BaseModel):
+    id: int
+    title: str
+    has_cover: bool
+
+
+# A collection's card on the home page. id None is Unsorted.
+class CollectionSummary(BaseModel):
+    id: int | None
+    name: str
+    document_count: int
+    # Started but not finished.
+    in_progress_count: int
+    # Its newest documents, newest first, drawn as a stack of books.
+    stack: list[CoverItem]
+
+
+class DocumentIds(BaseModel):
+    document_ids: list[int] = Field(min_length=1, max_length=1000)
+
+
+class DocumentsMove(DocumentIds):
+    collection_id: int
+
+
 class DocumentCreate(BaseModel):
     url: HttpUrl
+    # None (e.g. from an older page) puts it in Unsorted.
+    collection_id: int | None = None
 
 
 class ChunkOut(BaseModel):
@@ -46,6 +94,13 @@ class LibraryItem(DocumentSummary):
 
 class DocumentDetail(DocumentSummary):
     chunks: list[ChunkOut]
+    collection_id: int | None
+    # None when it's Unsorted.
+    collection_name: str | None = None
+    next_url: str | None
+    # The next part's id if it's already in the Library, so it can be opened
+    # instead of added again.
+    next_document_id: int | None = None
 
 
 class PronunciationIn(BaseModel):
@@ -64,7 +119,13 @@ class Preferences(BaseModel):
     # Saved settings missing a newer field get its default here, and fields
     # that no longer exist are ignored.
     theme: Literal["auto", "light", "dark", "paper"] = "auto"
-    font: Literal["sans", "serif", "book", "verdana"] = "sans"
+    # The keys of FONTS in frontend/src/context/preferences.js.
+    font: Literal[
+        "sans", "serif", "book", "verdana",
+        "literata", "merriweather", "source_serif", "garamond", "lora",
+        "inter", "atkinson", "lexend", "nunito",
+        "opendyslexic", "ia_writer",
+    ] = "sans"
     font_size: int = Field(default=18, ge=12, le=60)
     align: Literal["left", "justify"] = "left"
     # Split long words with a hyphen at the end of a line.

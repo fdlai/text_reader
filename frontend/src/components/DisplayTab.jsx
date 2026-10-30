@@ -1,3 +1,4 @@
+import { useMatch } from "react-router-dom";
 import {
   FONTS,
   HIGHLIGHT_COLORS,
@@ -7,6 +8,11 @@ import {
 
 const THEMES = { auto: "Auto", light: "Light", dark: "Dark", paper: "Paper" };
 const ALIGNMENTS = { left: "Left align", justify: "Justify" };
+// { System: [[key, font], ...], Serif: [...], ... }, in the order of FONTS.
+const FONT_GROUPS = Object.groupBy(
+  Object.entries(FONTS),
+  ([, font]) => font.group,
+);
 
 // A row of buttons where exactly one is selected.
 function Segmented({ options, value, onChange }) {
@@ -64,9 +70,11 @@ function Section({ title, children }) {
   );
 }
 
-// Changes apply to the reader right away and are saved automatically.
+// Changes apply right away and are saved automatically. Only the theme
+// affects every page; the rest are about how articles look.
 export default function DisplayTab() {
   const { prefs, update } = usePreferences();
+  const reading = useMatch("/documents/:id");
 
   return (
     <div className="space-y-6">
@@ -78,16 +86,33 @@ export default function DisplayTab() {
         />
       </Section>
 
+      {/* In the reader, changes show in the text behind the panel, so the
+          note is only needed elsewhere. */}
+      <div className="border-t border-gray-200 pt-4">
+        <h3 className="text-xs font-semibold tracking-wide text-gray-500 uppercase">
+          Reading
+        </h3>
+        {!reading && (
+          <p className="mt-1 text-sm text-gray-500">
+            These apply when you open an article.
+          </p>
+        )}
+      </div>
+
       <Section title="Font">
         <select
           value={prefs.font}
           onChange={(e) => update({ font: e.target.value })}
           className="w-full rounded border border-gray-300 bg-white px-3 py-2"
         >
-          {Object.entries(FONTS).map(([key, { label, family }]) => (
-            <option key={key} value={key} style={{ fontFamily: family }}>
-              {label}
-            </option>
+          {Object.entries(FONT_GROUPS).map(([group, fonts]) => (
+            <optgroup key={group} label={group}>
+              {fonts.map(([key, { label, family }]) => (
+                <option key={key} value={key} style={{ fontFamily: family }}>
+                  {label}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </Section>
