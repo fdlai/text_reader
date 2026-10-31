@@ -14,6 +14,31 @@ const PlayerContext = createContext(null);
 
 export const usePlayer = () => useContext(PlayerContext);
 
+// How far the skip buttons and arrow keys move. Short, for going back or
+// forward about a sentence; the progress bar and "Play from here" are for
+// bigger jumps.
+export const SKIP_SECONDS = 5;
+
+const VOLUME_KEY = "volume";
+
+// The volume is kept in this browser rather than with the other
+// preferences, because the right level depends on the device (laptop
+// speakers, headphones, ...).
+function savedVolume() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(VOLUME_KEY));
+    if (typeof saved?.volume === "number") {
+      return {
+        volume: Math.min(1, Math.max(0, saved.volume)),
+        muted: Boolean(saved.muted),
+      };
+    }
+  } catch {
+    // storage unavailable or not valid JSON; use the default below
+  }
+  return { volume: 1, muted: false };
+}
+
 export function PlayerProvider({ children }) {
   const audioRef = useRef(null);
   const sessionRef = useRef(null);
@@ -29,10 +54,39 @@ export function PlayerProvider({ children }) {
   // page shows the article was finished, until listening starts again.
   const [finished, setFinished] = useState(false);
   const [rate, setRate] = useState(1);
+  // volume is 0 to 1. Muting keeps it, so unmuting returns to the same level.
+  const [{ volume, muted }, setVolumeState] = useState(savedVolume);
 
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
+
+  useEffect(() => {
+    audioRef.current.volume = volume;
+    audioRef.current.muted = muted;
+    try {
+      localStorage.setItem(VOLUME_KEY, JSON.stringify({ volume, muted }));
+    } catch {
+      // storage unavailable; the volume just isn't remembered
+    }
+  }, [volume, muted]);
+
+  // Moving the slider also unmutes, as in most players.
+  const changeVolume = useCallback(
+    (newVolume) => setVolumeState({ volume: newVolume, muted: false }),
+    [],
+  );
+  // Unmuting from a volume of 0 would still be silent, so it goes to half
+  // volume instead.
+  const toggleMute = useCallback(
+    () =>
+      setVolumeState((s) =>
+        s.volume === 0
+          ? { volume: 0.5, muted: false }
+          : { ...s, muted: !s.muted },
+      ),
+    [],
+  );
 
   const currentChunk = session?.chunks[index];
   const isReady = (chunk) => chunk.id in chunkAudio;
@@ -85,7 +139,7 @@ export function PlayerProvider({ children }) {
   }, [playing]);
 
   // Saving progress. Instead of saving constantly, the position is saved:
-  //  - shortly after pausing or seeking (debounced, so five quick +15s
+  //  - shortly after pausing or seeking (debounced, so five quick +5s
   //    clicks send one request, not five),
   //  - every 30 seconds while playing, in case the browser crashes,
   //  - right away when the tab is hidden or closed.
@@ -322,6 +376,10 @@ export function PlayerProvider({ children }) {
     waiting,
     rate,
     changeRate,
+    volume,
+    muted,
+    changeVolume,
+    toggleMute,
     speedFor,
     timeline,
     position,

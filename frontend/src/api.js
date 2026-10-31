@@ -145,6 +145,28 @@ export const generateAudio = (documentId, voicePresetId, front = false) =>
     json("POST", { voice_preset_id: voicePresetId, front }),
   );
 
+// Generation as a whole: { paused, items, qwen_running }, where items is the
+// queue in order. Pausing stops every queued document, keeping the audio
+// already made.
+export const getGeneration = () => request("/generation");
+
+export const pauseGeneration = () =>
+  request("/generation/pause", { method: "POST" });
+
+export const resumeGeneration = () =>
+  request("/generation/resume", { method: "POST" });
+
+// to: "top", "up" or "down". Returns the new queue, like getGeneration.
+export const moveQueued = (documentId, voicePresetId, to) =>
+  request(
+    "/generation/move",
+    json("POST", {
+      document_id: documentId,
+      voice_preset_id: voicePresetId,
+      to,
+    }),
+  );
+
 export const getAudioStatus = (documentId, voicePresetId) =>
   request(
     `/documents/${documentId}/audio-status?voice_preset_id=${voicePresetId}`,

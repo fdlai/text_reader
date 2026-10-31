@@ -92,11 +92,16 @@ export const PAGE_WIDTHS = {
 };
 
 // Highlights are see-through tints of these colors (red green blue), so
-// they work on light, dark and paper backgrounds alike.
+// they work on light, dark and paper backgrounds alike. In rainbow order,
+// with pink last: it's between purple and red, where the wheel wraps round.
 export const HIGHLIGHT_COLORS = {
+  red: "239 68 68",
+  orange: "249 115 22",
   yellow: "250 204 21",
   green: "34 197 94",
+  teal: "20 184 166",
   blue: "59 130 246",
+  purple: "168 85 247",
   pink: "236 72 153",
 };
 

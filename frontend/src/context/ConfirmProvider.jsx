@@ -1,22 +1,37 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConfirmContext } from "./confirm";
 
-// A styled replacement for the browser's confirm() popup, for actions that
-// delete things. Used like confirm(), but awaited:
+// A styled replacement for the browser's confirm() popup, mostly for actions
+// that delete things. Used like confirm(), but awaited:
 //   if (!(await confirm({ title: "Delete article?", message: "..." }))) return;
 // It's a <dialog> opened with showModal(), so the browser dims the page,
 // keeps keyboard focus inside the dialog, and turns Escape into "cancel".
+// The confirm button is red, unless danger: false (nothing is lost).
 export default function ConfirmProvider({ children }) {
-  // The open request: { title, message, confirmLabel, cancelLabel, resolve },
+  // The open request: { title, message, confirmLabel, cancelLabel, danger,
+  // resolve },
   // or null while closed.
   const [request, setRequest] = useState(null);
   const dialogRef = useRef(null);
   const cancelRef = useRef(null);
 
   const confirm = useCallback(
-    ({ title, message, confirmLabel = "Delete", cancelLabel = "Cancel" }) =>
+    ({
+      title,
+      message,
+      confirmLabel = "Delete",
+      cancelLabel = "Cancel",
+      danger = true,
+    }) =>
       new Promise((resolve) =>
-        setRequest({ title, message, confirmLabel, cancelLabel, resolve }),
+        setRequest({
+          title,
+          message,
+          confirmLabel,
+          cancelLabel,
+          danger,
+          resolve,
+        }),
       ),
     [],
   );
@@ -60,10 +75,16 @@ export default function ConfirmProvider({ children }) {
               >
                 {request.cancelLabel}
               </button>
-              {/* Plain white text: the theme's "white" is dark in dark mode. */}
+              {/* Red uses plain white text, since the theme's "white" is
+                  dark in dark mode. Black/white swap with the theme, like
+                  the Play button. */}
               <button
                 onClick={() => finish(true)}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-[#fff] hover:bg-red-700"
+                className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                  request.danger
+                    ? "bg-red-600 text-[#fff] hover:bg-red-700"
+                    : "bg-black text-white hover:opacity-85"
+                }`}
               >
                 {request.confirmLabel}
               </button>

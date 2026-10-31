@@ -132,7 +132,10 @@ class Preferences(BaseModel):
     hyphenate: bool = False
     page_width: Literal["normal", "wide", "full"] = "normal"
     highlight_words: bool = True
-    highlight_color: Literal["yellow", "green", "blue", "pink"] = "yellow"
+    # The keys of HIGHLIGHT_COLORS in frontend/src/context/preferences.js.
+    highlight_color: Literal[
+        "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"
+    ] = "yellow"
     # Voice preset ids, most recently picked first. The first one is the
     # voice the Reader starts with.
     recent_voices: list[int] = Field(default_factory=list, max_length=10)

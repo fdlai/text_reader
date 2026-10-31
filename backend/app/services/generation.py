@@ -5,6 +5,10 @@ between them, so each would generate slower than it plays. Instead, jobs
 wait in a queue and one worker generates a single chunk of the job at the
 front, then looks at the front again. Moving a job to the front (e.g. when
 its document starts playing) therefore takes effect after at most one chunk.
+
+Generation can also be paused as a whole, e.g. to free the GPU for something
+else. The queue is kept, and resuming carries on from each document's first
+chunk without audio, so only the chunk that was in progress is redone.
 """
 
 import asyncio
@@ -39,6 +43,8 @@ _wakeup = asyncio.Event()
 _worker: asyncio.Task | None = None
 # The job being worked on and the task generating its current chunk.
 _current: tuple[Key, asyncio.Task] | None = None
+# While True, the worker doesn't start any chunks. Jobs can still be queued.
+_paused = False
 
 
 def remove_files(paths: list[str]) -> None:
@@ -132,7 +138,7 @@ async def _work() -> None:
     while True:
         await _wakeup.wait()
         _wakeup.clear()
-        while _queue:
+        while _queue and not _paused:
             key = _queue[0]
             task = asyncio.create_task(_next_chunk(*key))
             _current = (key, task)
@@ -141,7 +147,9 @@ async def _work() -> None:
             except asyncio.CancelledError:
                 if asyncio.current_task().cancelling():
                     raise  # the worker itself is being stopped
-                continue  # only this job was cancelled; it's already removed
+                # Only this chunk was stopped: its job was cancelled (and
+                # already removed), or generation was paused.
+                continue
             except Exception as e:
                 if not isinstance(e, TTSError):
                     logger.exception("Audio generation failed for %s", key)
@@ -166,6 +174,46 @@ def queue_position(document_id: int, preset_id: int) -> int | None:
     """How many jobs are ahead of this one (0 = next or in progress)."""
     key = (document_id, preset_id)
     return _queue.index(key) if key in _queue else None
+
+
+def queued_jobs() -> list[Key]:
+    """The queue in order, first the one being (or about to be) generated."""
+    return list(_queue)
+
+
+def move_job(document_id: int, preset_id: int, to: str) -> None:
+    """Move a queued job "top", "up" or "down" one place. A new first job
+    starts once the chunk in progress is done."""
+    key = (document_id, preset_id)
+    if key not in _queue:
+        return
+    i = _queue.index(key)
+    j = {"top": 0, "up": max(0, i - 1), "down": min(len(_queue) - 1, i + 1)}[to]
+    _queue.insert(j, _queue.pop(i))
+
+
+def is_paused() -> bool:
+    return _paused
+
+
+async def pause_generation() -> None:
+    """Stop generating right away, keeping every job queued, and stop Qwen
+    so the GPU is free immediately rather than after its idle timeout."""
+    global _paused
+    _paused = True
+    if _current:
+        task = _current[1]
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    await qwen.stop_now()
+
+
+def resume_generation() -> None:
+    global _paused, _worker
+    _paused = False
+    if _worker is None or _worker.done():
+        _worker = asyncio.create_task(_work())
+    _wakeup.set()
 
 
 def start_generation(document_id: int, preset_id: int, front: bool = False) -> None:
@@ -195,6 +243,7 @@ async def cancel_generation(
     Waits for a chunk in progress to stop, so it can't save audio for rows
     being deleted.
     """
+    global _paused
 
     def matches(key: Key) -> bool:
         return (document_id is None or key[0] == document_id) and (
@@ -209,6 +258,9 @@ async def cancel_generation(
         task = _current[1]
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+    # Nothing left to resume, so don't stay paused (and keep saying so).
+    if not _queue:
+        _paused = False
 
 
 async def shutdown() -> None:

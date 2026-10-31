@@ -2,19 +2,32 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_session
 from app.models import AudioFile, Chunk, Document, VoicePreset
-from app.schemas_audio import ChunkAudioStatus, GenerateIn, GenerationStatus
+from app.schemas_audio import (
+    ChunkAudioStatus,
+    GenerateIn,
+    GenerationQueue,
+    GenerationStatus,
+    MoveIn,
+    QueueItem,
+)
+from app.services import qwen
 from app.services.generation import (
     cancel_generation,
+    is_paused,
     jobs,
     notice,
+    move_job,
+    pause_generation,
     queue_position,
+    queued_jobs,
     remove_files,
+    resume_generation,
     start_generation,
 )
 from app.services.pronunciation import Lexicon, load_lexicon
@@ -82,6 +95,91 @@ async def _build_status(
             for c in chunks
         ],
     )
+
+
+async def _queue_status(session: AsyncSession) -> GenerationQueue:
+    keys = queued_jobs()
+    doc_ids = {d for d, _ in keys}
+    preset_ids = {p for _, p in keys}
+    documents = {
+        d.id: d
+        for d in await session.scalars(select(Document).where(Document.id.in_(doc_ids)))
+    }
+    presets = {
+        p.id: p
+        for p in await session.scalars(
+            select(VoicePreset).where(VoicePreset.id.in_(preset_ids))
+        )
+    }
+    totals = dict(
+        (
+            await session.execute(
+                select(Chunk.document_id, func.count())
+                .where(Chunk.document_id.in_(doc_ids))
+                .group_by(Chunk.document_id)
+            )
+        ).all()
+    )
+    # Audio counts by (document, preset, model); only the preset's current
+    # model counts, as elsewhere.
+    ready = {
+        (d, p, m): n
+        for d, p, m, n in await session.execute(
+            select(Chunk.document_id, AudioFile.voice_preset_id, AudioFile.model, func.count())
+            .join(Chunk, Chunk.id == AudioFile.chunk_id)
+            .where(
+                Chunk.document_id.in_(doc_ids),
+                AudioFile.voice_preset_id.in_(preset_ids),
+            )
+            .group_by(Chunk.document_id, AudioFile.voice_preset_id, AudioFile.model)
+        )
+    }
+    items = []
+    for d, p in keys:
+        document, preset = documents.get(d), presets.get(p)
+        if document is None or preset is None:
+            continue  # being deleted right now
+        items.append(
+            QueueItem(
+                document_id=d,
+                voice_preset_id=p,
+                title=document.title,
+                has_cover=document.cover_type is not None,
+                voice_name=preset.name,
+                engine=preset.engine,
+                ready=ready.get((d, p, model_name(preset.engine)), 0),
+                total=totals.get(d, 0),
+            )
+        )
+    return GenerationQueue(
+        paused=is_paused(), items=items, qwen_running=qwen.is_running()
+    )
+
+
+@router.get("/generation", response_model=GenerationQueue)
+async def generation_queue(session: AsyncSession = Depends(get_session)):
+    return await _queue_status(session)
+
+
+@router.post("/generation/pause", response_model=GenerationQueue)
+async def pause(session: AsyncSession = Depends(get_session)):
+    """Pauses all generation (every queued document), and stops Qwen to free
+    the GPU. The audio already made is kept."""
+    await pause_generation()
+    return await _queue_status(session)
+
+
+@router.post("/generation/resume", response_model=GenerationQueue)
+async def resume(session: AsyncSession = Depends(get_session)):
+    resume_generation()
+    return await _queue_status(session)
+
+
+@router.post("/generation/move", response_model=GenerationQueue)
+async def move(body: MoveIn, session: AsyncSession = Depends(get_session)):
+    """Moves a queued document to the top, or up or down one place."""
+    move_job(body.document_id, body.voice_preset_id, body.to)
+    return await _queue_status(session)
 
 
 @router.post("/documents/{document_id}/generate", response_model=GenerationStatus)

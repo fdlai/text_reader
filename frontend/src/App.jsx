@@ -3,7 +3,9 @@ import { Route, Routes, useMatch, useParams } from "react-router-dom";
 import Header from "./components/Header";
 import PlayerBar from "./components/PlayerBar";
 import PreferencesPanel from "./components/PreferencesPanel";
+import QueuePanel from "./components/QueuePanel";
 import { BreadcrumbContext } from "./context/breadcrumb";
+import { useGeneration } from "./context/generation";
 import { PlayerProvider } from "./context/PlayerContext";
 import { PAGE_WIDTHS, usePreferences } from "./context/preferences";
 import Collection from "./pages/Collection";
@@ -28,6 +30,7 @@ function CollectionPage() {
 export default function App() {
   const { prefs, panel, setPanel } = usePreferences();
   const closePanel = useCallback(() => setPanel(null), [setPanel]);
+  const { queueOpen } = useGeneration();
   // Only the reading page follows the Page width setting; the others
   // stay at a comfortable width for lists and forms, except the home page,
   // a little wider to fit three collection cards across.
@@ -61,6 +64,7 @@ export default function App() {
         {panel && !reading && (
           <PreferencesPanel key={panel.prefill?.n ?? 0} onClose={closePanel} />
         )}
+        {queueOpen && <QueuePanel />}
       </BreadcrumbContext.Provider>
       <PlayerBar />
     </PlayerProvider>

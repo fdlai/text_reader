@@ -18,7 +18,8 @@ import PreferencesPanel from "../components/PreferencesPanel";
 import VoicePicker from "../components/VoicePicker";
 import { useBreadcrumb } from "../context/breadcrumb";
 import { useConfirm } from "../context/confirm";
-import { usePlayer } from "../context/PlayerContext";
+import { queueKey, useGeneration } from "../context/generation";
+import { SKIP_SECONDS, usePlayer } from "../context/PlayerContext";
 import {
   FONTS,
   HIGHLIGHT_COLORS,
@@ -87,6 +88,7 @@ export default function Reader() {
   const { prefs, update, panel, setPanel } = usePreferences();
   const engines = useEngines();
   const confirm = useConfirm();
+  const generation = useGeneration();
   const navigate = useNavigate();
   const { setBreadcrumb } = useBreadcrumb();
   const { updateChunkAudio } = player;
@@ -162,7 +164,8 @@ export default function Reader() {
         if (cancelled) return;
         setStatus(s);
         updateChunkAudio(documentId, presetId, readyAudio(s));
-        if (s.generating) timer = setTimeout(poll, 2000);
+        // Nothing changes while paused; resuming runs this again.
+        if (s.generating && !generation.paused) timer = setTimeout(poll, 2000);
       } catch (e) {
         if (!cancelled) setError(e.message);
       }
@@ -173,7 +176,7 @@ export default function Reader() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [documentId, presetId, pollKey, updateChunkAudio]);
+  }, [documentId, presetId, pollKey, updateChunkAudio, generation.paused]);
 
   const sameSession =
     player.session?.documentId === documentId &&
@@ -256,8 +259,9 @@ export default function Reader() {
   });
 
   // Keyboard shortcuts: L goes back to the collection, Space plays/pauses,
-  // Left/Right arrows go back/forward 15 seconds (hold to keep skipping).
-  // (P for Preferences works on every page; see Header.)
+  // Left/Right arrows go back/forward SKIP_SECONDS (hold to keep skipping).
+  // (P for Preferences and M for mute work on every page; see Header and
+  // PlayerBar.)
   // Ignored while typing in a box. Space is also left alone on a focused
   // button (the browser uses it to press that button), and when nothing can
   // play, so it still scrolls the page then.
@@ -283,7 +287,7 @@ export default function Reader() {
       const skip = skipRef.current;
       if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && skip) {
         e.preventDefault(); // otherwise a wide page would scroll sideways
-        skip(e.key === "ArrowLeft" ? -15 : 15);
+        skip(e.key === "ArrowLeft" ? -SKIP_SECONDS : SKIP_SECONDS);
       }
     }
     window.addEventListener("keydown", handleShortcut);
@@ -391,6 +395,7 @@ export default function Reader() {
     try {
       await generateAudio(documentId, presetId, front);
       setPollKey((k) => k + 1);
+      generation.refresh(); // so the header's queue count includes it
     } catch (e) {
       setError(e.message);
     }
@@ -407,7 +412,10 @@ export default function Reader() {
       try {
         id = (await createDocument(doc.next_url, doc.collection_id)).id;
         // Joins the back of the queue, so this part's audio still comes first.
-        if (presetId && canGenerate) await generateAudio(id, presetId);
+        if (presetId && canGenerate) {
+          await generateAudio(id, presetId);
+          generation.refresh();
+        }
       } catch (e) {
         // Already in the Library after all (e.g. just added from the Library
         // page): the error says which one, so that one is used.
@@ -443,29 +451,14 @@ export default function Reader() {
     });
   }
 
-  // Cancels generation (if any) and deletes this voice's audio for this
-  // document. Other voices' audio and the saved position are kept.
+  // Deletes this voice's audio for this document (only offered when it
+  // isn't generating). Other voices' audio and the saved position are kept.
   async function handleDeleteAudio() {
-    const n = readyChunks.length;
-    const sections = `${n} ${n === 1 ? "section" : "sections"}`;
-    const confirmed = await confirm(
-      status.generating
-        ? {
-            title: "Stop generating audio?",
-            message:
-              n > 0
-                ? `Generating with "${preset.name}" will stop, and the ${sections} already made will be deleted.`
-                : `Generating with "${preset.name}" will stop.`,
-            confirmLabel: n > 0 ? "Stop and delete" : "Stop generating",
-            // "Cancel" would be confusing next to cancelling generation.
-            cancelLabel: "Keep generating",
-          }
-        : {
-            title: "Delete audio?",
-            message: `All of this article's audio made with "${preset.name}" will be deleted. Your listening position is kept.`,
-            confirmLabel: "Delete audio",
-          },
-    );
+    const confirmed = await confirm({
+      title: "Delete audio?",
+      message: `All of this article's audio made with "${preset.name}" will be deleted. Your listening position is kept.`,
+      confirmLabel: "Delete audio",
+    });
     if (!confirmed) return;
     setError("");
     try {
@@ -481,6 +474,8 @@ export default function Reader() {
       setStatus(null);
       await deleteDocumentAudio(documentId, presetId);
       setPollKey((k) => k + 1);
+      // If this was the last article waiting, generation is no longer paused.
+      generation.refresh();
     } catch (e) {
       setError(e.message);
     }
@@ -491,6 +486,7 @@ export default function Reader() {
     try {
       await regenerateOutdated(documentId, presetId);
       setPollKey((k) => k + 1);
+      generation.refresh();
     } catch (e) {
       setError(e.message);
     }
@@ -621,30 +617,31 @@ export default function Reader() {
           </button>
         )}
 
+        {/* The queue panel has the controls (reorder, pause, remove), so
+            the status opens it. */}
         {status?.generating && (
-          <span className="text-sm text-gray-500">
-            {status.queue_position > 0
-              ? `Queued: ${status.queue_position} ${status.queue_position === 1 ? "document" : "documents"} ahead. `
-              : "Generating audio: "}
-            {readyChunks.length} of {status.chunks.length} sections ready
-          </span>
-        )}
-
-        {status?.queue_position > 0 && (
           <button
-            onClick={() => handleGenerate(true)}
-            className="text-sm font-medium underline hover:text-black"
+            onClick={() => generation.openQueue(queueKey(documentId, presetId))}
+            title="Open the generation queue, with this article selected"
+            data-queue-toggle
+            className="text-sm text-gray-500 underline decoration-gray-300 underline-offset-2 hover:text-black hover:decoration-black"
           >
-            Generate this next
+            {generation.paused
+              ? "Generation paused: "
+              : status.queue_position > 0
+                ? `Queued: ${status.queue_position} ${status.queue_position === 1 ? "article" : "articles"} ahead. `
+                : "Generating audio: "}
+            {readyChunks.length} of {status.chunks.length} sections ready
           </button>
         )}
 
-        {(status?.generating || readyChunks.length > 0) && (
+        {/* While generating, it's removed from the queue panel instead. */}
+        {!status?.generating && readyChunks.length > 0 && (
           <button
             onClick={handleDeleteAudio}
             className="text-sm text-gray-500 hover:text-red-600"
           >
-            {status.generating ? "Cancel" : "Delete audio"}
+            Delete audio
           </button>
         )}
 
@@ -661,7 +658,7 @@ export default function Reader() {
             <button
               onClick={() => handleNextPart(false)}
               disabled={addingNext}
-              title="Adds it to the Library and starts generating its audio"
+              title="Adds it to this collection and starts generating its audio"
               className="text-sm text-gray-500 hover:underline disabled:opacity-50"
             >
               {addingNext ? "Adding next part..." : "Add next part"}

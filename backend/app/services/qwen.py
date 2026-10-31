@@ -378,6 +378,22 @@ async def stop_when_idle() -> None:
                     await _stop()
 
 
+def is_running() -> bool:
+    return _mode is not None
+
+
+async def stop_now() -> None:
+    """Stop Qwen without waiting for the idle timeout. Waits for a request
+    in progress (e.g. designing a voice) to finish first."""
+    async with _lock:
+        if _mode:
+            logger.info("Stopping Qwen because generation was paused")
+            try:
+                await _stop()
+            except TTSError:
+                logger.exception("Could not stop Qwen")
+
+
 async def remove_container() -> None:
     """Remove the Qwen container when the app starts and shuts down, even if
     the app doesn't think one is running (e.g. one left over after the app

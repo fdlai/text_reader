@@ -5,6 +5,7 @@ import "./index.css";
 import "./fonts.css";
 import App from "./App.jsx";
 import ConfirmProvider from "./context/ConfirmProvider";
+import GenerationProvider from "./context/GenerationProvider";
 import { applyTheme, cachedPreferences } from "./context/preferences";
 import PreferencesProvider from "./context/PreferencesProvider";
 
@@ -16,7 +17,9 @@ createRoot(document.getElementById("root")).render(
     <BrowserRouter>
       <PreferencesProvider>
         <ConfirmProvider>
-          <App />
+          <GenerationProvider>
+            <App />
+          </GenerationProvider>
         </ConfirmProvider>
       </PreferencesProvider>
     </BrowserRouter>

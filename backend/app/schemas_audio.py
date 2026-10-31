@@ -99,6 +99,33 @@ class ChunkAudioStatus(BaseModel):
     outdated: bool
 
 
+class QueueItem(BaseModel):
+    document_id: int
+    voice_preset_id: int
+    title: str
+    has_cover: bool
+    voice_name: str
+    engine: str
+    ready: int  # chunks with audio
+    total: int
+
+
+class GenerationQueue(BaseModel):
+    """Generation as a whole, rather than for one document."""
+
+    paused: bool
+    # Documents waiting or being generated (when paused: waiting to resume),
+    # first the one being generated.
+    items: list[QueueItem]
+    qwen_running: bool
+
+
+class MoveIn(BaseModel):
+    document_id: int
+    voice_preset_id: int
+    to: Literal["top", "up", "down"]
+
+
 class GenerationStatus(BaseModel):
     # True while queued or being generated.
     generating: bool

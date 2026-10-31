@@ -1,8 +1,11 @@
+import { useEffect } from "react";
 import { Link, useMatch } from "react-router-dom";
-import { usePlayer } from "../context/PlayerContext";
+import { useGeneration } from "../context/generation";
+import { SKIP_SECONDS, usePlayer } from "../context/PlayerContext";
 import { usePreferences } from "../context/preferences";
 import { formatTime } from "../timeline";
 import SpeedControl from "./SpeedControl";
+import VolumeControl from "./VolumeControl";
 
 // The icons fill with the button's text color, so they follow the theme.
 function PlayIcon() {
@@ -36,6 +39,10 @@ export default function PlayerBar() {
     waiting,
     rate,
     changeRate,
+    volume,
+    muted,
+    changeVolume,
+    toggleMute,
     timeline,
     position,
     seekTo,
@@ -43,7 +50,27 @@ export default function PlayerBar() {
     skip,
   } = usePlayer();
   const { togglePanel } = usePreferences();
+  const { paused } = useGeneration();
   const reading = useMatch("/documents/:id");
+
+  // M mutes/unmutes on any page while the bar is shown. Ignored like the
+  // other shortcuts: while typing in a box, with Ctrl/Alt held, or while a
+  // popup is open.
+  useEffect(() => {
+    if (!session) return;
+    function handleKey(e) {
+      if (e.key !== "m" && e.key !== "M") return;
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (
+        e.target.closest("input, select, textarea, [contenteditable], dialog")
+      )
+        return;
+      toggleMute();
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [session, toggleMute]);
+
   if (!session) return null;
 
   // Times are shown in real time, so at 2x a 10-minute document shows 5:00.
@@ -82,15 +109,17 @@ export default function PlayerBar() {
             {finished
               ? "Finished"
               : waiting
-                ? "Generating next section..."
+                ? paused
+                  ? "Generation paused (resume it to keep listening)"
+                  : "Generating next section..."
                 : `Section ${index + 1} of ${session.chunks.length}`}
           </p>
         </Link>
         <button
-          onClick={() => skip(-15)}
+          onClick={() => skip(-SKIP_SECONDS)}
           className="text-sm text-gray-600 hover:text-black"
         >
-          -15s
+          -{SKIP_SECONDS}s
         </button>
         <button
           onClick={toggle}
@@ -101,12 +130,18 @@ export default function PlayerBar() {
           {playing ? <PauseIcon /> : <PlayIcon />}
         </button>
         <button
-          onClick={() => skip(15)}
+          onClick={() => skip(SKIP_SECONDS)}
           className="text-sm text-gray-600 hover:text-black"
         >
-          +15s
+          +{SKIP_SECONDS}s
         </button>
         <SpeedControl rate={rate} onChange={changeRate} />
+        <VolumeControl
+          volume={volume}
+          muted={muted}
+          onChange={changeVolume}
+          onToggleMute={toggleMute}
+        />
         {/* The Preferences panel belongs to the article page. */}
         {reading && (
           <button
