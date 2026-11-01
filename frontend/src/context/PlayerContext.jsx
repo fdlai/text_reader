@@ -20,6 +20,17 @@ export const usePlayer = () => useContext(PlayerContext);
 export const SKIP_SECONDS = 5;
 
 const VOLUME_KEY = "volume";
+// Whether the player bar is hidden (see PlayerBar), also kept in this
+// browser, so it stays the same from one article to the next.
+const BAR_HIDDEN_KEY = "playerBarHidden";
+
+function savedBarHidden() {
+  try {
+    return localStorage.getItem(BAR_HIDDEN_KEY) === "true";
+  } catch {
+    return false; // storage unavailable
+  }
+}
 
 // The volume is kept in this browser rather than with the other
 // preferences, because the right level depends on the device (laptop
@@ -56,6 +67,16 @@ export function PlayerProvider({ children }) {
   const [rate, setRate] = useState(1);
   // volume is 0 to 1. Muting keeps it, so unmuting returns to the same level.
   const [{ volume, muted }, setVolumeState] = useState(savedVolume);
+  const [barHidden, setBarHidden] = useState(savedBarHidden);
+  const toggleBar = useCallback(() => setBarHidden((hidden) => !hidden), []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(BAR_HIDDEN_KEY, String(barHidden));
+    } catch {
+      // storage unavailable; the choice just isn't remembered
+    }
+  }, [barHidden]);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -380,6 +401,8 @@ export function PlayerProvider({ children }) {
     muted,
     changeVolume,
     toggleMute,
+    barHidden,
+    toggleBar,
     speedFor,
     timeline,
     position,

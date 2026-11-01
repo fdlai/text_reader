@@ -61,16 +61,18 @@ const STEP_LOW = 0.55;
 const STEP_AT = 0.4;
 
 // Where text can be seen, as y coordinates relative to the window: below
-// the header (when it's showing) and above the player bar. headerHeight is
-// the header's height even while it's slid away.
+// the header (when it's showing) and above the player bar, or above its
+// small play button while the bar is hidden (whichever of the player's
+// parts reaches highest). headerHeight is the header's height even while
+// it's slid away.
 function visibleArea() {
   const header = document.querySelector("header");
-  const bar = document
-    .querySelector("[data-player-bar]")
-    ?.getBoundingClientRect();
+  const playerTops = [...document.querySelectorAll("[data-player-bar]")].map(
+    (el) => el.getBoundingClientRect().top,
+  );
   return {
     top: Math.max(header?.getBoundingClientRect().bottom ?? 0, 0),
-    bottom: bar ? bar.top : window.innerHeight,
+    bottom: Math.min(window.innerHeight, ...playerTops),
     headerHeight: header?.offsetHeight ?? 0,
   };
 }
@@ -277,6 +279,9 @@ export default function Reader() {
     player.session?.documentId === documentId &&
     player.session?.presetId === presetId;
   const activeIndex = sameSession ? player.index : -1;
+  // Where "Back to current" and the "Finished" buttons float: above the
+  // player bar, or near the bottom while it's hidden.
+  const floatBottom = player.barHidden ? "bottom-8" : "bottom-28";
 
   // On opening a document, load it into the player paused at the saved
   // position, so the progress bar shows where listening left off. Skipped
@@ -930,11 +935,14 @@ export default function Reader() {
         />
       )}
 
-      {/* Floats above the player bar. Once finished, "Back to current"
+      {/* Floats above the player bar (or near the bottom while it's hidden).
+          Once finished, "Back to current"
           would only lead to the last word, so Listen again takes its place,
           visible wherever the page is scrolled. */}
       {finished && isReady(0) ? (
-        <div className="fixed bottom-28 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black py-1.5 pr-1.5 pl-4 text-sm text-white shadow-lg">
+        <div
+          className={`fixed left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black py-1.5 pr-1.5 pl-4 text-sm text-white shadow-lg ${floatBottom}`}
+        >
           ✓ Finished
           {/* With a next part, that's the main button and this one is quieter. */}
           <button
@@ -958,7 +966,7 @@ export default function Reader() {
         !following && (
           <button
             onClick={backToCurrent}
-            className="fixed bottom-28 left-1/2 -translate-x-1/2 rounded-full bg-black px-4 py-2 text-sm text-white shadow-lg"
+            className={`fixed left-1/2 -translate-x-1/2 rounded-full bg-black px-4 py-2 text-sm text-white shadow-lg ${floatBottom}`}
           >
             Back to current
           </button>
