@@ -53,9 +53,11 @@ const LINES_BELOW = 2;
 const LINES_ABOVE = 1;
 const MAX_BELOW = 0.15;
 const MAX_ABOVE = 0.1;
-// With "Small steps", the line is kept above this fraction of the visible
-// area, and moved back to STEP_AT when it gets lower.
-const STEP_LIMIT = 0.6;
+// With "Small steps", the middle of the line being read is kept between
+// these fractions of the visible area, and moved back to STEP_AT when it
+// leaves them. (Its middle, so a large font doesn't drag it lower.)
+const STEP_HIGH = 0.25;
+const STEP_LOW = 0.55;
 const STEP_AT = 0.4;
 
 // Where text can be seen, as y coordinates relative to the window: below
@@ -73,20 +75,28 @@ function visibleArea() {
   };
 }
 
-// For following in a scroll style, with lines lineHeight pixels tall: where
-// the line being read is moved to when scrolling down (target) or up
-// (targetUp), and how far down it may get first (limit). For page turns on
-// a window too short for the line counts, fractions of it are used.
+// For following in a scroll style, with lines lineHeight pixels tall, as
+// positions of the top of the line being read: where it's moved to when
+// scrolling down (target) or up (targetUp), and how high (high) and low
+// (limit) it may get first. For page turns on a window too short for the
+// line counts, fractions of it are used.
 function followPositions(style, lineHeight) {
   const { top, bottom, headerHeight } = visibleArea();
   const height = bottom - top;
   if (style === "steps") {
-    const target = top + height * STEP_AT;
-    return { top, target, targetUp: target, limit: top + height * STEP_LIMIT };
+    // From the middle of the line to its top.
+    const at = (fraction) => top + height * fraction - lineHeight / 2;
+    const target = at(STEP_AT);
+    return {
+      high: at(STEP_HIGH),
+      limit: at(STEP_LOW),
+      target,
+      targetUp: target,
+    };
   }
   const above = Math.min(LINES_ABOVE * lineHeight, height * MAX_ABOVE);
   return {
-    top,
+    high: top,
     // The header slides away while the page scrolls down, so the line can
     // go nearer the top then, but it slides back in when scrolling up.
     target: above,
@@ -437,8 +447,17 @@ export default function Reader() {
         prefs.scroll_style,
         lineHeight,
       );
+      // The page can't scroll past its top or bottom, so at the start or
+      // end of the article it only glides as far as it can, if anywhere.
+      const maxScroll =
+        document.documentElement.scrollHeight - window.innerHeight;
+      const distance = Math.min(
+        Math.max(y > target ? y - target : y - targetUp, -window.scrollY),
+        maxScroll - window.scrollY,
+      );
+      if (Math.abs(distance) < 1) return;
       stopGlideRef.current = glideBy(
-        y > target ? y - target : y - targetUp,
+        distance,
         SCROLL_SPEEDS[prefs.scroll_speed].ms,
         () => {
           stopGlideRef.current = null;
@@ -470,8 +489,8 @@ export default function Reader() {
     // beginning several times a second, which looks jerky.
     if (stopGlideRef.current) return;
     const y = readingY(chunkEl, offset, chunkLength(timeline, activeIndex));
-    const { top, limit } = followPositions(prefs.scroll_style, lineHeight);
-    if (y < top || y > limit) glideToReading(chunkEl);
+    const { high, limit } = followPositions(prefs.scroll_style, lineHeight);
+    if (y < high || y > limit) glideToReading(chunkEl);
   }, [
     following,
     playing,
