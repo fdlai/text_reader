@@ -8,9 +8,11 @@ from pydantic import (
     HttpUrl,
     StringConstraints,
     computed_field,
+    field_validator,
 )
 
 from app.services.chunker import paragraph_words
+from app.services.paragraph_audio import DEFAULT_PAUSE, MAX_PAUSE
 
 
 class CollectionCreate(BaseModel):
@@ -130,6 +132,8 @@ class Preferences(BaseModel):
     align: Literal["left", "justify"] = "left"
     # Split long words with a hyphen at the end of a line.
     hyphenate: bool = False
+    # The keys of PARAGRAPH_SPACINGS in frontend/src/context/preferences.js.
+    paragraph_spacing: Literal["compact", "normal", "wide"] = "normal"
     page_width: Literal["normal", "wide", "full"] = "normal"
     highlight_words: bool = True
     # The keys of HIGHLIGHT_COLORS in frontend/src/context/preferences.js.
@@ -138,7 +142,18 @@ class Preferences(BaseModel):
     ] = "yellow"
     # Voice preset ids, most recently picked first. The first one is the
     # voice the Reader starts with.
+    # Seconds Kokoro and Qwen voices pause after each paragraph.
+    paragraph_pause: float = Field(default=DEFAULT_PAUSE, ge=0, le=MAX_PAUSE)
     recent_voices: list[int] = Field(default_factory=list, max_length=10)
+
+    @field_validator("paragraph_pause", mode="before")
+    @classmethod
+    def pause_seconds(cls, value):
+        # Saved before the slider existed, as the name of a preset.
+        value = {"off": 0.0, "short": 0.35, "medium": 0.7, "long": 1.0}.get(value, value)
+        # In steps of 0.05 s, like the slider, so a value saved now equals
+        # the one recorded with audio made earlier at the same setting.
+        return round(float(value) * 20) / 20
 
 
 class Progress(BaseModel):

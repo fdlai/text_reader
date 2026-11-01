@@ -25,6 +25,7 @@ from app.database import SessionLocal
 from app.models import AudioFile, Chunk, VoicePreset
 from app.services import qwen
 from app.services.alignment import word_start_times
+from app.services.preferences import load_preferences
 from app.services.pronunciation import load_lexicon
 from app.services.tts import TTSError, model_name, synthesize
 
@@ -93,6 +94,12 @@ async def _next_chunk(document_id: int, preset_id: int) -> bool:
         # The voice reads the text with pronunciation entries swapped in;
         # word timings are still matched against the real text.
         spoken_text, used = (await load_lexicon(session)).apply(chunk.text)
+        # Read for every chunk, so a change applies from the next chunk on.
+        pause = (
+            None
+            if preset.engine == "openai"
+            else (await load_preferences(session)).paragraph_pause
+        )
 
     def notify(message: str, done: bool) -> None:
         if job := jobs.get((document_id, preset_id)):
@@ -100,7 +107,12 @@ async def _next_chunk(document_id: int, preset_id: int) -> bool:
             job["notice"] = (message, time.monotonic() + qwen.NOTICE_SECONDS if done else None)
 
     data = await synthesize(
-        spoken_text, preset.engine, preset.base_voice, preset.instructions, notify
+        spoken_text,
+        preset.engine,
+        preset.base_voice,
+        preset.instructions,
+        notify,
+        pause or 0.0,
     )
     path = Path(settings.audio_dir) / f"{chunk.id}_{preset_id}_{model}.mp3"
     try:
@@ -116,6 +128,7 @@ async def _next_chunk(document_id: int, preset_id: int) -> bool:
                     duration_sec=duration,
                     word_times=word_times,
                     pronunciations=used,
+                    paragraph_pause=pause,
                 )
             )
             await session.commit()

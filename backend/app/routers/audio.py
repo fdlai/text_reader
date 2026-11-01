@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import NamedTuple
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import FileResponse
@@ -30,6 +31,7 @@ from app.services.generation import (
     resume_generation,
     start_generation,
 )
+from app.services.preferences import load_preferences
 from app.services.pronunciation import Lexicon, load_lexicon
 from app.services.tts import model_name
 
@@ -65,17 +67,34 @@ async def _chunks_with_audio(
     return list(chunks), audio
 
 
-def _is_outdated(lexicon: Lexicon, chunk: Chunk, audio: AudioFile) -> bool:
-    """True if the chunk would now be spoken with different pronunciations."""
-    _, used_now = lexicon.apply(chunk.text)
-    return used_now != (audio.pronunciations or {})
+class _Settings(NamedTuple):
+    """What generated audio depends on besides the voice, as it is now."""
+
+    lexicon: Lexicon
+    pause: float  # seconds after each paragraph, for Kokoro and Qwen
+
+
+async def _current_settings(session: AsyncSession) -> _Settings:
+    prefs = await load_preferences(session)
+    return _Settings(await load_lexicon(session), prefs.paragraph_pause)
+
+
+def _is_outdated(
+    now: _Settings, preset: VoicePreset, chunk: Chunk, audio: AudioFile
+) -> bool:
+    """True if the chunk would now be spoken with different pronunciations,
+    or with a different pause after its paragraphs."""
+    _, used_now = now.lexicon.apply(chunk.text)
+    if used_now != (audio.pronunciations or {}):
+        return True
+    return preset.engine != "openai" and audio.paragraph_pause != now.pause
 
 
 async def _build_status(
     session: AsyncSession, document_id: int, preset: VoicePreset
 ) -> GenerationStatus:
     chunks, audio = await _chunks_with_audio(session, document_id, preset)
-    lexicon = await load_lexicon(session)
+    now = await _current_settings(session)
     job = jobs.get((document_id, preset.id), {})
     return GenerationStatus(
         generating=job.get("running", False),
@@ -90,7 +109,7 @@ async def _build_status(
                 audio_id=audio[c.id].id if c.id in audio else None,
                 duration_sec=audio[c.id].duration_sec if c.id in audio else None,
                 word_times=audio[c.id].word_times if c.id in audio else None,
-                outdated=c.id in audio and _is_outdated(lexicon, c, audio[c.id]),
+                outdated=c.id in audio and _is_outdated(now, preset, c, audio[c.id]),
             )
             for c in chunks
         ],
@@ -202,7 +221,8 @@ async def generate(
 async def regenerate_outdated(
     document_id: int, body: GenerateIn, session: AsyncSession = Depends(get_session)
 ):
-    """Deletes audio made with old pronunciations, then generates it again."""
+    """Deletes audio made with old pronunciations or paragraph pauses, then
+    generates it again."""
     if await session.get(Document, document_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
     preset = await _get_preset(session, body.voice_preset_id)
@@ -216,11 +236,11 @@ async def regenerate_outdated(
         )
 
     chunks, audio = await _chunks_with_audio(session, document_id, preset)
-    lexicon = await load_lexicon(session)
+    now = await _current_settings(session)
     outdated = [
         audio[c.id]
         for c in chunks
-        if c.id in audio and _is_outdated(lexicon, c, audio[c.id])
+        if c.id in audio and _is_outdated(now, preset, c, audio[c.id])
     ]
     for a in outdated:
         await session.delete(a)

@@ -15,7 +15,6 @@ import asyncio
 import base64
 import io
 import logging
-import re
 import subprocess
 import time
 from collections.abc import Callable
@@ -27,6 +26,7 @@ import soundfile as sf
 
 from app.config import settings
 from app.services.errors import TTSError
+from app.services.paragraph_audio import read_paragraphs
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +40,6 @@ CODEC = "qwen-tokenizer-12hz-Q8_0.gguf"
 MODEL_NAME = "qwen3-tts-1.7b"
 SAMPLE_RATE = 24000
 IDLE_SECONDS = 5 * 60
-# Pause between paragraphs, which are generated one at a time.
-PARAGRAPH_PAUSE = 0.35
 # Qwen learns a voice from its whole sample (about 10 s), but longer clips
 # need more GPU memory: a 10 s sample ran out of memory on a 4 GB GPU with a
 # few other apps open, while its first 8 s worked. When that happens, Qwen
@@ -272,37 +270,39 @@ async def design(description: str) -> bytes:
 
 
 async def speak(
-    text: str, voice_id: int, notify: Callable[[str, bool], None] | None = None
+    text: str,
+    voice_id: int,
+    pause: float,
+    notify: Callable[[str, bool], None] | None = None,
 ) -> tuple[np.ndarray, int]:
-    """Read the text in a saved voice, one paragraph at a time.
+    """Read the text in a saved voice, one paragraph at a time, with pause
+    seconds of silence after each (see paragraph_audio).
 
     notify(message, done) is called if Qwen runs out of memory and has to be
     restarted: done=False while recovering, then done=True once it works.
     """
+    async def speak_paragraph(paragraph: str) -> np.ndarray:
+        wav = await _post(
+            "/v1/audio/speech",
+            {
+                "input": paragraph,
+                "voice": f"v{voice_id}",
+                "language": "English",
+                "response_format": "wav",
+                "seed": 42,
+            },
+        )
+        audio, _ = sf.read(io.BytesIO(wav), dtype="float32")
+        return audio
+
+    # Held for the whole chunk, so e.g. designing a voice can't swap the
+    # model out between its paragraphs.
     async with _lock:
         await _use("clone")
         if voice_id not in _registered:
             await _register(voice_id, notify or (lambda message, done: None))
-
-        pause = np.zeros(int(SAMPLE_RATE * PARAGRAPH_PAUSE), dtype=np.float32)
-        pieces = []
-        for paragraph in text.split("\n\n"):
-            # Paragraphs like "…" have nothing to say, so they just get a pause.
-            if re.search(r"\w", paragraph):
-                wav = await _post(
-                    "/v1/audio/speech",
-                    {
-                        "input": paragraph.strip(),
-                        "voice": f"v{voice_id}",
-                        "language": "English",
-                        "response_format": "wav",
-                        "seed": 42,
-                    },
-                )
-                audio, _ = sf.read(io.BytesIO(wav), dtype="float32")
-                pieces.append(audio)
-            pieces.append(pause)
-        return np.concatenate(pieces), SAMPLE_RATE
+        samples = await read_paragraphs(text, speak_paragraph, SAMPLE_RATE, pause)
+        return samples, SAMPLE_RATE
 
 
 async def _register(voice_id: int, notify: Callable[[str, bool], None]) -> None:

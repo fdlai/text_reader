@@ -127,6 +127,10 @@ class AudioFile(Base):
     pronunciations: Mapped[dict[str, str] | None] = mapped_column(
         JSON(none_as_null=True)
     )
+    # Seconds of silence after each paragraph when this audio was made (see
+    # services/paragraph_audio.py), compared with the current setting the
+    # same way. None for OpenAI, which doesn't add these pauses.
+    paragraph_pause: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

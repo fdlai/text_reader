@@ -1,21 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import DisplayTab from "./DisplayTab";
+import ListeningTab from "./ListeningTab";
 import PronunciationsTab from "./PronunciationsTab";
 
 const TABS = [
   { id: "display", label: "Display" },
+  { id: "listening", label: "Listening" },
   { id: "pronunciations", label: "Pronunciations" },
 ];
 
 // A panel that slides over the right side of the page, so preferences can
 // be changed while listening. "Fix pronunciation" opens it with a prefill,
-// which starts it on the Pronunciations tab. voice and
-// onPronunciationsChange only come from the Reader.
+// which starts it on the Pronunciations tab. voice and onAudioChange
+// (called after a change that affects generated audio) only come from the
+// Reader.
 export default function PreferencesPanel({
   onClose,
   prefill,
   voice,
-  onPronunciationsChange,
+  onAudioChange,
 }) {
   const [tab, setTab] = useState(prefill ? "pronunciations" : "display");
   const ref = useRef(null);
@@ -80,12 +83,13 @@ export default function PreferencesPanel({
 
       <div className="flex-1 overflow-y-auto px-5 py-5">
         {tab === "display" && <DisplayTab />}
+        {tab === "listening" && <ListeningTab voice={voice} onChange={onAudioChange} />}
         {tab === "pronunciations" && (
           <PronunciationsTab
             key={prefill?.n ?? 0}
             prefill={prefill}
             voice={voice}
-            onChange={onPronunciationsChange}
+            onChange={onAudioChange}
           />
         )}
       </div>

@@ -4,17 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.models import Preference
 from app.schemas import Preferences
+from app.services.preferences import ROW_ID, load_preferences
 
 router = APIRouter(prefix="/api/preferences", tags=["preferences"])
-
-# The single settings row (see models.Preference).
-ROW_ID = 1
 
 
 @router.get("", response_model=Preferences)
 async def get_preferences(session: AsyncSession = Depends(get_session)):
-    row = await session.get(Preference, ROW_ID)
-    return Preferences.model_validate(row.settings if row else {})
+    return await load_preferences(session)
 
 
 @router.put("", response_model=Preferences)

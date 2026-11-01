@@ -3,7 +3,7 @@ import binascii
 import hashlib
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -20,8 +20,9 @@ from app.schemas_audio import (
     VoicePresetSave,
     VoicePreviewIn,
 )
-from app.services import qwen
+from app.services import pause_preview, qwen
 from app.services.generation import delete_preset_audio
+from app.services.paragraph_audio import MAX_PAUSE
 from app.services.tts import VOICES, TTSError, synthesize
 
 router = APIRouter(prefix="/api/voice-presets", tags=["voices"])
@@ -152,7 +153,31 @@ async def delete_preset(preset_id: int, session: AsyncSession = Depends(get_sess
     await session.delete(preset)
     await session.commit()
     _remove_samples(preset_id)
+    pause_preview.remove(preset_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# The voice reading a short exchange with pause seconds between the lines,
+# for trying out the paragraph pause (see services/pause_preview.py).
+@router.get("/{preset_id}/pause-preview")
+async def preview_pause(
+    preset_id: int,
+    pause: float = Query(ge=0, le=MAX_PAUSE),
+    session: AsyncSession = Depends(get_session),
+):
+    preset = await session.get(VoicePreset, preset_id)
+    if preset is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Preset not found.")
+    if preset.engine == "openai":
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "OpenAI voices don't pause between paragraphs.",
+        )
+    try:
+        audio = await pause_preview.preview(preset, pause)
+    except TTSError as e:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e))
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 # A short clip of the voice, for the ▶ buttons in the voice picker. Made the

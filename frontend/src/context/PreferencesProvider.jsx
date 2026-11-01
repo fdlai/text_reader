@@ -43,12 +43,16 @@ export default function PreferencesProvider({ children }) {
     return () => media.removeEventListener("change", onChange);
   }, [prefs.theme]);
 
-  const update = useCallback((changes) => {
+  // Saving waits until changes stop for a moment (e.g. while dragging the
+  // font size). With saveNow it happens right away, and the returned promise
+  // resolves once saved, for settings the backend uses straight after.
+  const update = useCallback((changes, { saveNow = false } = {}) => {
     const next = { ...prefsRef.current, ...changes };
     prefsRef.current = next;
     setPrefs(next);
     cachePreferences(next);
     clearTimeout(saveTimerRef.current);
+    if (saveNow) return savePreferences(next);
     saveTimerRef.current = setTimeout(
       () => savePreferences(next).catch(() => {}),
       500,

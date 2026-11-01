@@ -3,6 +3,7 @@ import {
   FONTS,
   HIGHLIGHT_COLORS,
   PAGE_WIDTHS,
+  PARAGRAPH_SPACINGS,
   usePreferences,
 } from "../context/preferences";
 
@@ -15,7 +16,7 @@ const FONT_GROUPS = Object.groupBy(
 );
 
 // A row of buttons where exactly one is selected.
-function Segmented({ options, value, onChange }) {
+export function Segmented({ options, value, onChange }) {
   return (
     <div className="flex rounded-lg bg-gray-100 p-1">
       {Object.entries(options).map(([key, label]) => (
@@ -61,7 +62,7 @@ function Toggle({ label, description, checked, onChange }) {
   );
 }
 
-function Section({ title, children }) {
+export function Section({ title, children }) {
   return (
     <section className="space-y-2">
       <h3 className="text-sm font-medium">{title}</h3>
@@ -149,6 +150,19 @@ export default function DisplayTab() {
           description="Split long words at the end of a line, for more even spacing"
           checked={prefs.hyphenate}
           onChange={(hyphenate) => update({ hyphenate })}
+        />
+      </Section>
+
+      <Section title="Paragraph spacing">
+        <Segmented
+          options={Object.fromEntries(
+            Object.entries(PARAGRAPH_SPACINGS).map(([key, { label }]) => [
+              key,
+              label,
+            ]),
+          )}
+          value={prefs.paragraph_spacing}
+          onChange={(paragraph_spacing) => update({ paragraph_spacing })}
         />
       </Section>
 

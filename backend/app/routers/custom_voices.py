@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.models import CustomVoice, VoicePreset
 from app.schemas_audio import CustomVoiceIn, CustomVoiceOut, VoiceDesignIn
-from app.services import qwen
+from app.services import pause_preview, qwen
 from app.services.errors import TTSError
 from app.services.generation import delete_preset_audio
 
@@ -100,4 +100,6 @@ async def delete_custom_voice(voice_id: int, session: AsyncSession = Depends(get
     await session.delete(voice)
     await session.commit()
     qwen.voice_path(voice_id).unlink(missing_ok=True)
+    for preset in presets:
+        pause_preview.remove(preset.id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

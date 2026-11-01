@@ -115,6 +115,14 @@ export const coverUrl = (documentId) => `/api/documents/${documentId}/cover`;
 export const previewVoice = (voice) =>
   request("/voice-presets/preview", json("POST", voice), (r) => r.blob());
 
+// The voice reading a short exchange with that pause between the lines.
+export const pausePreview = (presetId, pause) =>
+  request(
+    `/voice-presets/${presetId}/pause-preview?pause=${pause}`,
+    undefined,
+    (r) => r.blob(),
+  );
+
 export const getPreferences = () => request("/preferences");
 
 export const savePreferences = (prefs) =>

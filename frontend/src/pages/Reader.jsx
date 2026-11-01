@@ -23,6 +23,7 @@ import { SKIP_SECONDS, usePlayer } from "../context/PlayerContext";
 import {
   FONTS,
   HIGHLIGHT_COLORS,
+  PARAGRAPH_SPACINGS,
   usePreferences,
 } from "../context/preferences";
 import { collectionPath } from "../paths";
@@ -679,8 +680,8 @@ export default function Reader() {
       {outdatedCount > 0 && !status.generating && (
         <p className="mt-3 text-sm text-amber-700">
           {outdatedCount}{" "}
-          {outdatedCount === 1 ? "section uses" : "sections use"} an older
-          pronunciation.{" "}
+          {outdatedCount === 1 ? "section was" : "sections were"} made with
+          older settings (pronunciations or paragraph pauses).{" "}
           <button
             onClick={handleRegenerateOutdated}
             className="font-medium underline hover:text-black"
@@ -702,7 +703,7 @@ export default function Reader() {
 
       <div
         ref={textRef}
-        className="mt-8 space-y-4"
+        className="mt-8 space-y-(--section-gap)"
         style={{
           fontFamily: FONTS[prefs.font].family,
           fontSize: `${prefs.font_size}px`,
@@ -713,6 +714,12 @@ export default function Reader() {
           // See-through tints used by the highlights (see ChunkText).
           "--highlight-word": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.4)`,
           "--highlight-chunk": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.15)`,
+          "--paragraph-gap": `${PARAGRAPH_SPACINGS[prefs.paragraph_spacing].em}em`,
+          // Sections already have 1rem of padding between them (p-2 above
+          // and below, for the section highlight), so the gap between them
+          // is that much less. That way the last paragraph of a section and
+          // the first of the next are as far apart as any two paragraphs.
+          "--section-gap": "max(0px, var(--paragraph-gap) - 1rem)",
         }}
       >
         {doc.chunks.map((chunk) => (
@@ -720,7 +727,7 @@ export default function Reader() {
             key={chunk.id}
             ref={(el) => (chunkRefs.current[chunk.index] = el)}
             data-chunk={chunk.index}
-            className={`space-y-4 rounded p-2 ${
+            className={`space-y-(--paragraph-gap) rounded p-2 ${
               activeIndex === chunk.index &&
               !activeWordTimes &&
               prefs.highlight_words
@@ -769,7 +776,7 @@ export default function Reader() {
           onClose={closePanel}
           prefill={panel.prefill}
           voice={preset}
-          onPronunciationsChange={() => setPollKey((k) => k + 1)}
+          onAudioChange={() => setPollKey((k) => k + 1)}
         />
       )}
 

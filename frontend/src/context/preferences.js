@@ -8,9 +8,11 @@ export const DEFAULTS = {
   font_size: 18,
   align: "left",
   hyphenate: false,
+  paragraph_spacing: "normal",
   page_width: "normal",
   highlight_words: true,
   highlight_color: "yellow",
+  paragraph_pause: 0.35,
   recent_voices: [],
 };
 
@@ -90,6 +92,33 @@ export const PAGE_WIDTHS = {
   wide: { label: "Wide", className: "max-w-5xl" },
   full: { label: "Full", className: "max-w-none" },
 };
+
+// The space between paragraphs, in em so it grows with the font size.
+// It's added on top of the space between lines (from the line height), so
+// even Compact leaves paragraphs further apart than lines.
+export const PARAGRAPH_SPACINGS = {
+  compact: { label: "Compact", em: 0.5 },
+  normal: { label: "Normal", em: 1 },
+  wide: { label: "Wide", em: 2 },
+};
+
+// How long Kokoro and Qwen voices pause after each paragraph, in seconds,
+// which makes a change of speaker easier to hear. The slider goes up to
+// MAX_PAUSE in steps of 0.05 s (the backend rounds to the same steps).
+export const MAX_PAUSE = 2;
+const PAUSE_STEPS_PER_SECOND = 20;
+export const PAUSE_STEP = 1 / PAUSE_STEPS_PER_SECOND;
+// Rounds to a step. Dividing (7 / 20) gives exactly 0.35, while
+// multiplying (7 * 0.05) gives 0.35000000000000003, which wouldn't match
+// the Short preset.
+export const toPauseStep = (value) =>
+  Math.round(value * PAUSE_STEPS_PER_SECOND) / PAUSE_STEPS_PER_SECOND;
+export const PAUSE_PRESETS = [
+  { label: "Off", seconds: 0 },
+  { label: "Short", seconds: 0.35 }, // the default (DEFAULTS above)
+  { label: "Medium", seconds: 0.7 },
+  { label: "Long", seconds: 1 },
+];
 
 // Highlights are see-through tints of these colors (red green blue), so
 // they work on light, dark and paper backgrounds alike. In rainbow order,
