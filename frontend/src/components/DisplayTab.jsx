@@ -4,6 +4,8 @@ import {
   HIGHLIGHT_COLORS,
   PAGE_WIDTHS,
   PARAGRAPH_SPACINGS,
+  SCROLL_SPEEDS,
+  SCROLL_STYLES,
   usePreferences,
 } from "../context/preferences";
 
@@ -192,6 +194,40 @@ export default function DisplayTab() {
             />
           ))}
         </div>
+      </Section>
+
+      <Section title="Scrolling while listening">
+        <Segmented
+          options={Object.fromEntries(
+            Object.entries(SCROLL_STYLES).map(([key, { label }]) => [
+              key,
+              label,
+            ]),
+          )}
+          value={prefs.scroll_style}
+          onChange={(scroll_style) => update({ scroll_style })}
+        />
+        <p className="text-xs text-gray-500">
+          {SCROLL_STYLES[prefs.scroll_style].description}
+        </p>
+      </Section>
+
+      <Section title="Scroll speed">
+        <Segmented
+          options={Object.fromEntries(
+            Object.entries(SCROLL_SPEEDS).map(([key, { label, ms }]) => [
+              key,
+              <>
+                {label}
+                <span className="block text-xs font-normal text-gray-500">
+                  {ms ? `${ms / 1000} s` : "no glide"}
+                </span>
+              </>,
+            ]),
+          )}
+          value={prefs.scroll_speed}
+          onChange={(scroll_speed) => update({ scroll_speed })}
+        />
       </Section>
     </div>
   );

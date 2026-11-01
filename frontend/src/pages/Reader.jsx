@@ -24,6 +24,7 @@ import {
   FONTS,
   HIGHLIGHT_COLORS,
   PARAGRAPH_SPACINGS,
+  SCROLL_SPEEDS,
   usePreferences,
 } from "../context/preferences";
 import { collectionPath } from "../paths";
@@ -40,11 +41,92 @@ const SCROLL_KEYS = new Set([
   "End",
 ]);
 
-// While following, the line being read is kept between these fractions of
-// the window height, and re-centered at FOLLOW_AT when it drifts outside.
-const FOLLOW_TOP = 0.2;
-const FOLLOW_BOTTOM = 0.6;
-const FOLLOW_AT = 0.4;
+// The text's line height, as a multiple of the font size.
+const LINE_HEIGHT = 1.8;
+// While following with "Page turns" (see SCROLL_STYLES), the page scrolls
+// once fewer than LINES_BELOW lines can be seen below the line being read,
+// and moves that line up to LINES_ABOVE lines from the top. With large text
+// a few lines are a big part of the screen, so the space kept below is at
+// most MAX_BELOW of the visible area (it still waits until near the bottom)
+// and the space left above at most MAX_ABOVE.
+const LINES_BELOW = 2;
+const LINES_ABOVE = 1;
+const MAX_BELOW = 0.15;
+const MAX_ABOVE = 0.1;
+// With "Small steps", the line is kept above this fraction of the visible
+// area, and moved back to STEP_AT when it gets lower.
+const STEP_LIMIT = 0.6;
+const STEP_AT = 0.4;
+
+// Where text can be seen, as y coordinates relative to the window: below
+// the header (when it's showing) and above the player bar. headerHeight is
+// the header's height even while it's slid away.
+function visibleArea() {
+  const header = document.querySelector("header");
+  const bar = document
+    .querySelector("[data-player-bar]")
+    ?.getBoundingClientRect();
+  return {
+    top: Math.max(header?.getBoundingClientRect().bottom ?? 0, 0),
+    bottom: bar ? bar.top : window.innerHeight,
+    headerHeight: header?.offsetHeight ?? 0,
+  };
+}
+
+// For following in a scroll style, with lines lineHeight pixels tall: where
+// the line being read is moved to when scrolling down (target) or up
+// (targetUp), and how far down it may get first (limit). For page turns on
+// a window too short for the line counts, fractions of it are used.
+function followPositions(style, lineHeight) {
+  const { top, bottom, headerHeight } = visibleArea();
+  const height = bottom - top;
+  if (style === "steps") {
+    const target = top + height * STEP_AT;
+    return { top, target, targetUp: target, limit: top + height * STEP_LIMIT };
+  }
+  const above = Math.min(LINES_ABOVE * lineHeight, height * MAX_ABOVE);
+  return {
+    top,
+    // The header slides away while the page scrolls down, so the line can
+    // go nearer the top then, but it slides back in when scrolling up.
+    target: above,
+    targetUp: headerHeight + above,
+    // The line's own height, plus the space kept below it.
+    limit: Math.max(
+      bottom -
+        lineHeight -
+        Math.min(LINES_BELOW * lineHeight, height * MAX_BELOW),
+      top + height * 0.5,
+    ),
+  };
+}
+
+// Scrolls the window down by distance pixels over ms milliseconds, starting
+// and ending gently, then calls onDone. Returns a function that stops it
+// early, or null if it jumped straight there: with ms 0, or with "reduce
+// motion" turned on in the system settings.
+function glideBy(distance, ms, onDone) {
+  if (
+    ms === 0 ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    window.scrollBy(0, distance);
+    return null;
+  }
+  const startY = window.scrollY;
+  const startTime = performance.now();
+  let frame;
+  function step(now) {
+    const t = Math.min((now - startTime) / ms, 1);
+    // Ease in and out: slow at both ends, fastest in the middle.
+    const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+    window.scrollTo(0, startY + distance * eased);
+    if (t < 1) frame = requestAnimationFrame(step);
+    else onDone();
+  }
+  frame = requestAnimationFrame(step);
+  return () => cancelAnimationFrame(frame);
+}
 
 // Where on screen the reading is, as a y coordinate relative to the window:
 // the highlighted word if there is one, otherwise an estimate from how far
@@ -110,6 +192,8 @@ export default function Reader() {
   const [moving, setMoving] = useState(false); // the Move popup is open
   // When true, the page scrolls to keep the text being read on screen.
   const [following, setFollowing] = useState(true);
+  // Stops the glide in progress (see glideBy), or null when there's none.
+  const stopGlideRef = useRef(null);
   // { chunkIndex, wordIndex, text, top, left } while text is selected.
   const [selectionPopup, setSelectionPopup] = useState(null);
   // Counts "Fix pronunciation" prefills, so fixing the same word twice still
@@ -337,15 +421,67 @@ export default function Reader() {
 
   const { timeline, offset, playing } = player;
 
+  const lineHeight = prefs.font_size * LINE_HEIGHT;
+
+  // Glides the reading position to where following keeps it, replacing any
+  // glide already going (stopGlide stops it without starting another).
+  const stopGlide = useCallback(() => {
+    stopGlideRef.current?.();
+    stopGlideRef.current = null;
+  }, []);
+  const glideToReading = useCallback(
+    (chunkEl) => {
+      stopGlide();
+      const y = readingY(chunkEl, offset, chunkLength(timeline, activeIndex));
+      const { target, targetUp } = followPositions(
+        prefs.scroll_style,
+        lineHeight,
+      );
+      stopGlideRef.current = glideBy(
+        y > target ? y - target : y - targetUp,
+        SCROLL_SPEEDS[prefs.scroll_speed].ms,
+        () => {
+          stopGlideRef.current = null;
+        },
+      );
+    },
+    [
+      stopGlide,
+      offset,
+      timeline,
+      activeIndex,
+      lineHeight,
+      prefs.scroll_style,
+      prefs.scroll_speed,
+    ],
+  );
+
+  // Scrolling by hand (which turns following off) or leaving the page stops
+  // a glide in progress.
+  useEffect(() => {
+    if (!following) stopGlide();
+  }, [following, stopGlide]);
+  useEffect(() => stopGlide, [stopGlide]);
+
   useEffect(() => {
     const chunkEl = chunkRefs.current[activeIndex];
     if (!following || !playing || !chunkEl) return;
+    // Already on its way: starting again would restart the glide's gentle
+    // beginning several times a second, which looks jerky.
+    if (stopGlideRef.current) return;
     const y = readingY(chunkEl, offset, chunkLength(timeline, activeIndex));
-    const height = window.innerHeight;
-    if (y < height * FOLLOW_TOP || y > height * FOLLOW_BOTTOM) {
-      window.scrollBy({ top: y - height * FOLLOW_AT, behavior: "smooth" });
-    }
-  }, [following, playing, activeIndex, offset, timeline]);
+    const { top, limit } = followPositions(prefs.scroll_style, lineHeight);
+    if (y < top || y > limit) glideToReading(chunkEl);
+  }, [
+    following,
+    playing,
+    activeIndex,
+    offset,
+    timeline,
+    glideToReading,
+    lineHeight,
+    prefs.scroll_style,
+  ]);
 
   if (error && !doc) return <p className="text-red-600">{error}</p>;
   if (!doc) return <p className="text-gray-500">Loading...</p>;
@@ -444,12 +580,7 @@ export default function Reader() {
   function backToCurrent() {
     setFollowing(true);
     const chunkEl = chunkRefs.current[activeIndex];
-    if (!chunkEl) return;
-    const y = readingY(chunkEl, offset, chunkLength(timeline, activeIndex));
-    window.scrollBy({
-      top: y - window.innerHeight * FOLLOW_AT,
-      behavior: "smooth",
-    });
+    if (chunkEl) glideToReading(chunkEl);
   }
 
   // Deletes this voice's audio for this document (only offered when it
@@ -707,7 +838,7 @@ export default function Reader() {
         style={{
           fontFamily: FONTS[prefs.font].family,
           fontSize: `${prefs.font_size}px`,
-          lineHeight: 1.8,
+          lineHeight: LINE_HEIGHT,
           textAlign: prefs.align,
           // The browser's English hyphenation rules (from <html lang="en">).
           hyphens: prefs.hyphenate ? "auto" : "manual",

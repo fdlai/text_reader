@@ -12,7 +12,7 @@ from openai import APIStatusError, AsyncOpenAI, AuthenticationError, OpenAIError
 from app.config import settings
 from app.services import qwen
 from app.services.errors import TTSError
-from app.services.paragraph_audio import read_paragraphs
+from app.services.paragraph_audio import Spans, read_paragraphs
 
 OPENAI_VOICES = [
     "alloy",
@@ -79,23 +79,24 @@ async def synthesize(
     instructions: str,
     notify: Callable[[str, bool], None] | None = None,
     pause: float = 0.0,
-) -> bytes:
-    """Return MP3 audio for the text. notify(message, done) reports Qwen
-    recovering from running out of memory (see qwen.speak). Kokoro and Qwen
-    add pause seconds of silence after each paragraph (see paragraph_audio);
-    OpenAI ignores it."""
+) -> tuple[bytes, Spans | None]:
+    """Return MP3 audio for the text, and when each paragraph is spoken in
+    it (None for OpenAI, which reads the text in one go). notify(message,
+    done) reports Qwen recovering from running out of memory (see
+    qwen.speak). Kokoro and Qwen add pause seconds of silence after each
+    paragraph (see paragraph_audio); OpenAI ignores it."""
     if engine == "kokoro":
-        samples = await read_paragraphs(
+        samples, spans = await read_paragraphs(
             text,
             lambda paragraph: asyncio.to_thread(_kokoro_speak, paragraph, voice),
             KOKORO_SAMPLE_RATE,
             pause,
         )
-        return await asyncio.to_thread(to_mp3, samples, KOKORO_SAMPLE_RATE)
+        return await asyncio.to_thread(to_mp3, samples, KOKORO_SAMPLE_RATE), spans
     if engine == "qwen":
-        samples, sample_rate = await qwen.speak(text, int(voice), pause, notify)
-        return await asyncio.to_thread(to_mp3, samples, sample_rate)
-    return await _openai_synthesize(text, voice, instructions)
+        samples, sample_rate, spans = await qwen.speak(text, int(voice), pause, notify)
+        return await asyncio.to_thread(to_mp3, samples, sample_rate), spans
+    return await _openai_synthesize(text, voice, instructions), None
 
 
 async def speak_paragraph(text: str, engine: str, voice: str) -> tuple[np.ndarray, int]:
@@ -106,7 +107,8 @@ async def speak_paragraph(text: str, engine: str, voice: str) -> tuple[np.ndarra
         samples = await asyncio.to_thread(_kokoro_speak, text, voice)
         return samples, KOKORO_SAMPLE_RATE
     if engine == "qwen":
-        return await qwen.speak(text, int(voice), 0.0)
+        samples, sample_rate, _ = await qwen.speak(text, int(voice), 0.0)
+        return samples, sample_rate
     raise TTSError("OpenAI voices don't pause between paragraphs.")
 
 

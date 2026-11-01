@@ -140,6 +140,10 @@ class Preferences(BaseModel):
     highlight_color: Literal[
         "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"
     ] = "yellow"
+    # How the page scrolls to follow the reading: the keys of SCROLL_STYLES
+    # and SCROLL_SPEEDS in frontend/src/context/preferences.js.
+    scroll_style: Literal["pages", "steps"] = "pages"
+    scroll_speed: Literal["instant", "quick", "gentle", "slow"] = "gentle"
     # Voice preset ids, most recently picked first. The first one is the
     # voice the Reader starts with.
     # Seconds Kokoro and Qwen voices pause after each paragraph.

@@ -25,6 +25,7 @@ from app.database import SessionLocal
 from app.models import AudioFile, Chunk, VoicePreset
 from app.services import qwen
 from app.services.alignment import word_start_times
+from app.services.paragraph_audio import Spans
 from app.services.preferences import load_preferences
 from app.services.pronunciation import load_lexicon
 from app.services.tts import TTSError, model_name, synthesize
@@ -59,11 +60,13 @@ def _write_audio(path: Path, data: bytes) -> float:
     return MP3(path).info.length
 
 
-async def word_times_for(path: Path, text: str, duration: float) -> list[float] | None:
+async def word_times_for(
+    path: Path, text: str, duration: float, spans: Spans | None = None
+) -> list[float] | None:
     # Word timings only improve highlighting, so a failure here shouldn't
     # lose the audio; the player falls back to estimating instead.
     try:
-        return await asyncio.to_thread(word_start_times, str(path), text, duration)
+        return await asyncio.to_thread(word_start_times, str(path), text, duration, spans)
     except Exception:
         logger.exception("Could not work out word timings for %s", path)
         return None
@@ -106,7 +109,7 @@ async def _next_chunk(document_id: int, preset_id: int) -> bool:
             # A "fixed" message only stays up for a little while.
             job["notice"] = (message, time.monotonic() + qwen.NOTICE_SECONDS if done else None)
 
-    data = await synthesize(
+    data, spans = await synthesize(
         spoken_text,
         preset.engine,
         preset.base_voice,
@@ -117,7 +120,7 @@ async def _next_chunk(document_id: int, preset_id: int) -> bool:
     path = Path(settings.audio_dir) / f"{chunk.id}_{preset_id}_{model}.mp3"
     try:
         duration = await asyncio.to_thread(_write_audio, path, data)
-        word_times = await word_times_for(path, chunk.text, duration)
+        word_times = await word_times_for(path, chunk.text, duration, spans)
         async with SessionLocal() as session:
             session.add(
                 AudioFile(

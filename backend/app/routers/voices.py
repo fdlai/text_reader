@@ -197,7 +197,7 @@ async def voice_sample(preset_id: int, session: AsyncSession = Depends(get_sessi
     path = _sample_path(preset)
     if not path.exists():
         try:
-            audio = await synthesize(
+            audio, _ = await synthesize(
                 SAMPLE_TEXT, preset.engine, preset.base_voice, preset.instructions
             )
         except TTSError as e:
@@ -240,7 +240,7 @@ def _remove_samples(preset_id: int) -> None:
 @router.post("/preview")
 async def preview(body: VoicePreviewIn):
     try:
-        audio = await synthesize(
+        audio, _ = await synthesize(
             body.text or SAMPLE_TEXT, body.engine, body.base_voice, body.instructions
         )
     except TTSError as e:

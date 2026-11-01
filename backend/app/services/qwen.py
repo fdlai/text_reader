@@ -26,7 +26,7 @@ import soundfile as sf
 
 from app.config import settings
 from app.services.errors import TTSError
-from app.services.paragraph_audio import read_paragraphs
+from app.services.paragraph_audio import Spans, read_paragraphs
 
 logger = logging.getLogger(__name__)
 
@@ -274,9 +274,10 @@ async def speak(
     voice_id: int,
     pause: float,
     notify: Callable[[str, bool], None] | None = None,
-) -> tuple[np.ndarray, int]:
+) -> tuple[np.ndarray, int, Spans]:
     """Read the text in a saved voice, one paragraph at a time, with pause
-    seconds of silence after each (see paragraph_audio).
+    seconds of silence after each (see paragraph_audio). Returns the audio,
+    its sample rate and when each paragraph is spoken.
 
     notify(message, done) is called if Qwen runs out of memory and has to be
     restarted: done=False while recovering, then done=True once it works.
@@ -301,8 +302,8 @@ async def speak(
         await _use("clone")
         if voice_id not in _registered:
             await _register(voice_id, notify or (lambda message, done: None))
-        samples = await read_paragraphs(text, speak_paragraph, SAMPLE_RATE, pause)
-        return samples, SAMPLE_RATE
+        samples, spans = await read_paragraphs(text, speak_paragraph, SAMPLE_RATE, pause)
+        return samples, SAMPLE_RATE, spans
 
 
 async def _register(voice_id: int, notify: Callable[[str, bool], None]) -> None:

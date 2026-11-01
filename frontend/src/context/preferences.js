@@ -12,6 +12,8 @@ export const DEFAULTS = {
   page_width: "normal",
   highlight_words: true,
   highlight_color: "yellow",
+  scroll_style: "pages",
+  scroll_speed: "gentle",
   paragraph_pause: 0.35,
   recent_voices: [],
 };
@@ -100,6 +102,27 @@ export const PARAGRAPH_SPACINGS = {
   compact: { label: "Compact", em: 0.5 },
   normal: { label: "Normal", em: 1 },
   wide: { label: "Wide", em: 2 },
+};
+
+// How the page scrolls to keep up with the reading (see the Reader).
+export const SCROLL_STYLES = {
+  pages: {
+    label: "Page turns",
+    description:
+      "Scrolls rarely, a screenful at a time: when only a few lines are left above the player.",
+  },
+  steps: {
+    label: "Small steps",
+    description:
+      "Scrolls often, a few lines at a time, keeping the text near the middle of the screen.",
+  },
+};
+// How long each of those scrolls takes, in milliseconds.
+export const SCROLL_SPEEDS = {
+  instant: { label: "Instant", ms: 0 },
+  quick: { label: "Quick", ms: 500 },
+  gentle: { label: "Gentle", ms: 1100 },
+  slow: { label: "Slow", ms: 1800 },
 };
 
 // How long Kokoro and Qwen voices pause after each paragraph, in seconds,
