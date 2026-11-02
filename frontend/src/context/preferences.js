@@ -16,6 +16,7 @@ export const DEFAULTS = {
   scroll_speed: "gentle",
   paragraph_pause: 0.35,
   recent_voices: [],
+  default_voice: null,
 };
 
 // "System" fonts come with the operating system, so they load instantly but

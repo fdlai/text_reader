@@ -99,6 +99,14 @@ class ChunkAudioStatus(BaseModel):
     outdated: bool
 
 
+class VoiceAudio(BaseModel):
+    """A voice that has audio for a document, or is generating it."""
+
+    voice_preset_id: int
+    ready: int  # chunks with audio
+    generating: bool  # queued or being generated
+
+
 class QueueItem(BaseModel):
     document_id: int
     voice_preset_id: int

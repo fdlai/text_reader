@@ -27,6 +27,7 @@ import {
   SCROLL_SPEEDS,
   usePreferences,
 } from "../context/preferences";
+import { defaultVoiceId } from "../engines";
 import { collectionPath } from "../paths";
 import { useEngines } from "../useEngines";
 import { chunkLength, wordIndexAt } from "../timeline";
@@ -189,12 +190,9 @@ export default function Reader() {
   const { updateChunkAudio } = player;
   const [doc, setDoc] = useState(null);
   const [voices, setVoices] = useState([]);
-  // Starts with the most recently picked voice. (The voice used to be kept
-  // in localStorage, which is still read once so it isn't lost.)
+  // Until the article loads, the default voice for new articles.
   const [presetId, setPresetId] = useState(
-    () =>
-      prefs.recent_voices[0] ??
-      (Number(localStorage.getItem("voicePresetId")) || null),
+    () => prefs.default_voice ?? prefs.recent_voices[0] ?? null,
   );
   const [status, setStatus] = useState(null);
   const [progress, setProgress] = useState(null); // where listening left off
@@ -224,8 +222,12 @@ export default function Reader() {
         setDoc(d);
         setVoices(v);
         setProgress(p);
+        // The article's own voice (the one it was last played or generated
+        // with, or that has the most audio for it), else the default one.
         setPresetId((current) =>
-          v.some((x) => x.id === current) ? current : (v[0]?.id ?? null),
+          v.some((x) => x.id === d.voice_preset_id)
+            ? d.voice_preset_id
+            : defaultVoiceId(v, current),
         );
       })
       .catch((e) => setError(e.message));
@@ -740,6 +742,10 @@ export default function Reader() {
           onChange={handleVoiceChange}
           recent={prefs.recent_voices}
           engines={engines}
+          documentId={documentId}
+          totalSections={doc.chunks.length}
+          defaultId={defaultVoiceId(voices, prefs.default_voice)}
+          onMakeDefault={(id) => update({ default_voice: id })}
         />
 
         {isReady(0) &&

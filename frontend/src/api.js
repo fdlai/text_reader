@@ -86,6 +86,14 @@ export const saveProgress = (id, chunkIndex, offsetSec, finished) =>
     keepalive: true,
   });
 
+// Remembers the voice a document is played with, so it opens with it next
+// time.
+export const setDocumentVoice = (id, voicePresetId) =>
+  request(
+    `/documents/${id}/voice`,
+    json("PUT", { voice_preset_id: voicePresetId }),
+  );
+
 export const listVoices = () => request("/voice-presets");
 
 export const listEngineVoices = () => request("/voice-presets/voices");
@@ -179,6 +187,11 @@ export const getAudioStatus = (documentId, voicePresetId) =>
   request(
     `/documents/${documentId}/audio-status?voice_preset_id=${voicePresetId}`,
   );
+
+// The voices with audio for a document (or generating it), each as
+// { voice_preset_id, ready, generating }.
+export const getVoiceAudio = (documentId) =>
+  request(`/documents/${documentId}/voice-audio`);
 
 // audioId isn't used by the backend; it only makes the URL change when the
 // audio is regenerated, so the browser doesn't play its cached old copy.

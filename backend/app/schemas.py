@@ -9,6 +9,7 @@ from pydantic import (
     StringConstraints,
     computed_field,
     field_validator,
+    model_validator,
 )
 
 from app.services.chunker import paragraph_words
@@ -103,6 +104,9 @@ class DocumentDetail(DocumentSummary):
     # The next part's id if it's already in the Library, so it can be opened
     # instead of added again.
     next_document_id: int | None = None
+    # The voice to open it with: the one it was last played or generated
+    # with, else the one with the most audio for it. None for neither.
+    voice_preset_id: int | None = None
 
 
 class PronunciationIn(BaseModel):
@@ -144,11 +148,21 @@ class Preferences(BaseModel):
     # and SCROLL_SPEEDS in frontend/src/context/preferences.js.
     scroll_style: Literal["pages", "steps"] = "pages"
     scroll_speed: Literal["instant", "quick", "gentle", "slow"] = "gentle"
-    # Voice preset ids, most recently picked first. The first one is the
-    # voice the Reader starts with.
     # Seconds Kokoro and Qwen voices pause after each paragraph.
     paragraph_pause: float = Field(default=DEFAULT_PAUSE, ge=0, le=MAX_PAUSE)
+    # Voice preset ids, most recently picked first, for the voice menu.
     recent_voices: list[int] = Field(default_factory=list, max_length=10)
+    # The voice preset new articles start with. (Articles that have been
+    # played or generated open with their own voice.)
+    default_voice: int | None = None
+
+    @model_validator(mode="after")
+    def first_default_voice(self):
+        # Saved before there was a default voice: it starts as the most
+        # recently picked one, which is what new articles used to start with.
+        if self.default_voice is None and self.recent_voices:
+            self.default_voice = self.recent_voices[0]
+        return self
 
     @field_validator("paragraph_pause", mode="before")
     @classmethod
@@ -158,6 +172,10 @@ class Preferences(BaseModel):
         # In steps of 0.05 s, like the slider, so a value saved now equals
         # the one recorded with audio made earlier at the same setting.
         return round(float(value) * 20) / 20
+
+
+class DocumentVoice(BaseModel):
+    voice_preset_id: int
 
 
 class Progress(BaseModel):

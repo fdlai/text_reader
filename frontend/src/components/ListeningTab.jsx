@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { pausePreview } from "../api";
+import { listVoices, pausePreview } from "../api";
 import { usePlayer } from "../context/PlayerContext";
 import {
   MAX_PAUSE,
@@ -9,6 +9,12 @@ import {
   usePreferences,
 } from "../context/preferences";
 import { Section } from "./DisplayTab";
+import {
+  defaultVoiceId,
+  ENGINE_NAMES,
+  kokoroDetail,
+  sortVoices,
+} from "../engines";
 
 const seconds = (value) => `${value.toFixed(2)} s`;
 
@@ -92,8 +98,45 @@ export default function ListeningTab({ voice, onChange }) {
 
   const canPreview = voice && voice.engine !== "openai";
 
+  const [voices, setVoices] = useState(null);
+  useEffect(() => {
+    listVoices()
+      .then(setVoices)
+      .catch((e) => setError(e.message));
+  }, []);
+
   return (
     <div className="space-y-6">
+      <Section title="Default voice">
+        {voices ? (
+          <select
+            value={defaultVoiceId(voices, prefs.default_voice) ?? ""}
+            onChange={(e) => update({ default_voice: Number(e.target.value) })}
+            aria-label="Default voice"
+            className="w-full rounded border border-gray-300 px-2 py-1.5"
+          >
+            {Object.keys(ENGINE_NAMES).map((engine) => (
+              <optgroup key={engine} label={ENGINE_NAMES[engine]}>
+                {sortVoices(voices, engine).map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.engine === "kokoro"
+                      ? `${v.name} (${kokoroDetail(v.base_voice)})`
+                      : v.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        ) : (
+          <p className="text-sm text-gray-500">Loading...</p>
+        )}
+        <p className="text-xs text-gray-500">
+          New articles start with this voice. Articles you&apos;ve already
+          played or generated keep the voice you used, and the next part of a
+          story is generated with the voice of the part before it.
+        </p>
+      </Section>
+
       <Section title={`Pause between paragraphs: ${seconds(pause)}`}>
         <div className="flex rounded-lg bg-gray-100 p-1">
           {PAUSE_PRESETS.map((preset) => (
@@ -129,8 +172,7 @@ export default function ListeningTab({ voice, onChange }) {
         </div>
         <p className="text-xs text-gray-500">
           In a story, a new paragraph often means someone else is speaking. A
-          longer pause makes that easier to hear. Short (0.35 s) is the
-          default.
+          longer pause makes that easier to hear. Short (0.35 s) is the default.
         </p>
       </Section>
 
@@ -158,8 +200,8 @@ export default function ListeningTab({ voice, onChange }) {
 
       <p className="text-xs text-gray-500">
         Applies to Kokoro and Qwen voices, for audio generated from now on.
-        Articles with audio made with a different pause offer to regenerate
-        it. OpenAI voices don't add these pauses.
+        Articles with audio made with a different pause offer to regenerate it.
+        OpenAI voices don't add these pauses.
       </p>
     </div>
   );

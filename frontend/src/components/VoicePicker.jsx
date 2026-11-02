@@ -1,23 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ENGINE_NAMES, kokoroDetail } from "../engines";
+import { getVoiceAudio } from "../api";
+import { ENGINE_NAMES, kokoroDetail, sortVoices } from "../engines";
 import { useSamplePlayer } from "../useSamplePlayer";
 import EngineNotice from "./EngineNotice";
 
 const TABS = ["kokoro", "qwen", "openai"];
 const RECENT_COUNT = 4;
-
-// Kokoro voices stay grouped by accent and gender (their ids sort that
-// way); the user's own voices are sorted by name.
-function sortVoices(voices, engine) {
-  return voices
-    .filter((v) => v.engine === engine)
-    .sort((a, b) =>
-      engine === "kokoro"
-        ? a.base_voice.localeCompare(b.base_voice)
-        : a.name.localeCompare(b.name),
-    );
-}
 
 // The small grey text next to a voice's name.
 function detail(voice) {
@@ -26,18 +15,33 @@ function detail(voice) {
   return "";
 }
 
+// How much of the article a voice has audio for, e.g. "6 of 14 sections".
+function audioLabel({ ready, generating }, total) {
+  if (ready >= total) return "All sections";
+  const sections = `${ready} of ${total} sections`;
+  return generating ? `Generating · ${sections}` : sections;
+}
+
 // The Reader's voice chooser: a button showing the current voice, which
-// opens a panel with recently used voices and a tab per engine. Every voice
-// has a ▶ button that plays its saved sample clip.
+// opens a panel with the voices that have audio for this article, recently
+// used voices, and a tab per engine. Every voice has a ▶ button that plays
+// its saved sample clip.
 export default function VoicePicker({
   voices,
   value,
   onChange,
   recent,
   engines,
+  documentId,
+  totalSections,
+  defaultId,
+  onMakeDefault,
 }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("kokoro");
+  // The voices with audio for this article, by voice id. Loaded each time
+  // the panel opens, since audio may have been made or deleted meanwhile.
+  const [audio, setAudio] = useState(new Map());
   const ref = useRef(null);
   const samples = useSamplePlayer();
   const { previewing } = samples;
@@ -68,6 +72,11 @@ export default function VoicePicker({
       // Start on the tab of the voice in use.
       setTab(current?.engine ?? "kokoro");
       setOpen(true);
+      getVoiceAudio(documentId)
+        .then((list) =>
+          setAudio(new Map(list.map((a) => [a.voice_preset_id, a]))),
+        )
+        .catch(() => {}); // the panel still works without it
     }
   }
 
@@ -81,9 +90,11 @@ export default function VoicePicker({
     close();
   }
 
-  function row(voice, showEngine) {
+  // note is the grey text on the right; it defaults to the voice's details.
+  function row(voice, note = detail(voice)) {
     const selected = voice.id === value;
     const state = previewing?.id === voice.id ? previewing : null;
+    const voiceAudio = audio.get(voice.id);
     return (
       <li key={voice.id} className="flex items-center gap-1">
         <button
@@ -108,8 +119,24 @@ export default function VoicePicker({
             {voice.name}
             {selected && " ✓"}
           </span>
-          <span className="shrink-0 text-xs font-normal text-gray-500">
-            {showEngine ? ENGINE_NAMES[voice.engine] : detail(voice)}
+          <span className="flex shrink-0 items-center gap-1.5 text-xs font-normal text-gray-500">
+            {voice.id === defaultId && (
+              <span
+                title="New articles start with this voice"
+                className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600"
+              >
+                default
+              </span>
+            )}
+            {voiceAudio && (
+              <span
+                title={`Has audio for this article: ${audioLabel(voiceAudio, totalSections).toLowerCase()}`}
+                className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600"
+              >
+                audio
+              </span>
+            )}
+            {note}
           </span>
         </button>
       </li>
@@ -123,6 +150,11 @@ export default function VoicePicker({
     .filter(Boolean)
     .slice(0, RECENT_COUNT);
   const tabVoices = sortVoices(voices, tab);
+  // Voices with audio for this article, the most complete first.
+  const audioVoices = [...audio.values()]
+    .sort((a, b) => b.ready - a.ready)
+    .map((a) => voices.find((v) => v.id === a.voice_preset_id))
+    .filter(Boolean);
 
   return (
     <div ref={ref} className="relative">
@@ -146,12 +178,25 @@ export default function VoicePicker({
 
       {open && (
         <div className="absolute top-full left-0 z-20 mt-2 w-80 rounded-lg border border-gray-200 bg-white text-base shadow-xl">
+          {audioVoices.length > 0 && (
+            <div className="border-b border-gray-200 p-2">
+              <p className="px-2 pb-1 text-xs font-medium text-gray-500 uppercase">
+                On this article
+              </p>
+              <ul>
+                {audioVoices.map((v) =>
+                  row(v, audioLabel(audio.get(v.id), totalSections)),
+                )}
+              </ul>
+            </div>
+          )}
+
           {recentVoices.length > 1 && (
             <div className="border-b border-gray-200 p-2">
               <p className="px-2 pb-1 text-xs font-medium text-gray-500 uppercase">
                 Recent
               </p>
-              <ul>{recentVoices.map((v) => row(v, true))}</ul>
+              <ul>{recentVoices.map((v) => row(v, ENGINE_NAMES[v.engine]))}</ul>
             </div>
           )}
 
@@ -183,7 +228,7 @@ export default function VoicePicker({
               <p className="px-2 py-1 text-sm text-red-600">{samples.error}</p>
             )}
             {tabVoices.length > 0 ? (
-              <ul>{tabVoices.map((v) => row(v, false))}</ul>
+              <ul>{tabVoices.map((v) => row(v))}</ul>
             ) : (
               <p className="px-2 py-3 text-sm text-gray-500">
                 No {ENGINE_NAMES[tab]} voices yet.{" "}
@@ -193,6 +238,21 @@ export default function VoicePicker({
               </p>
             )}
           </div>
+
+          {current && (
+            <div className="border-t border-gray-200 px-4 py-2.5 text-xs text-gray-500">
+              {current.id === defaultId ? (
+                `${current.name} is your default voice for new articles.`
+              ) : (
+                <button
+                  onClick={() => onMakeDefault(current.id)}
+                  className="underline hover:text-black"
+                >
+                  Make {current.name} the default for new articles
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

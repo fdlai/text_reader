@@ -44,7 +44,9 @@ function BookStack({ name, stack }) {
     );
   });
   // Drawn back to front, so the front book ends up on top.
-  return <div className="relative h-40 w-32">{books.reverse()}</div>;
+  // isolate keeps the books' z-indexes inside the stack, so they can't
+  // cover things outside it like the player bar.
+  return <div className="relative isolate h-40 w-32">{books.reverse()}</div>;
 }
 
 // A collection on the home page. Collections are cards and articles are

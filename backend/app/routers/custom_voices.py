@@ -68,7 +68,12 @@ async def create_custom_voice(body: CustomVoiceIn, session: AsyncSession = Depen
     path = qwen.voice_path(voice.id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(sample)
-    await session.commit()
+    try:
+        await session.commit()
+    except BaseException:
+        # Not saved, so don't leave the sample behind.
+        path.unlink(missing_ok=True)
+        raise
     return voice
 
 

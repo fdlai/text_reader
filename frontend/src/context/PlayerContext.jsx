@@ -7,7 +7,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { chunkAudioUrl, saveProgress, updateVoiceSpeed } from "../api";
+import {
+  chunkAudioUrl,
+  saveProgress,
+  setDocumentVoice,
+  updateVoiceSpeed,
+} from "../api";
 import { buildTimeline, fromPosition, toPosition } from "../timeline";
 
 const PlayerContext = createContext(null);
@@ -158,6 +163,15 @@ export function PlayerProvider({ children }) {
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
   }, [playing]);
+
+  // Each time playback starts, the article remembers the voice it's played
+  // with, so it opens with that voice next time.
+  const playingDocumentId = playing ? session?.documentId : null;
+  const playingPresetId = playing ? session?.presetId : null;
+  useEffect(() => {
+    if (playingDocumentId == null || playingPresetId == null) return;
+    setDocumentVoice(playingDocumentId, playingPresetId).catch(() => {});
+  }, [playingDocumentId, playingPresetId]);
 
   // Saving progress. Instead of saving constantly, the position is saved:
   //  - shortly after pausing or seeking (debounced, so five quick +5s

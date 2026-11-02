@@ -16,9 +16,11 @@ from app.schemas_audio import (
     GenerationStatus,
     MoveIn,
     QueueItem,
+    VoiceAudio,
 )
 from app.services import qwen
 from app.services.generation import (
+    audio_counts,
     cancel_generation,
     is_paused,
     jobs,
@@ -205,12 +207,15 @@ async def move(body: MoveIn, session: AsyncSession = Depends(get_session)):
 async def generate(
     document_id: int, body: GenerateIn, session: AsyncSession = Depends(get_session)
 ):
-    if await session.get(Document, document_id) is None:
+    document = await session.get(Document, document_id)
+    if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
     preset = await _get_preset(session, body.voice_preset_id)
     if preset.engine == "openai" and not settings.openai_api_key:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "OPENAI_API_KEY is not set.")
 
+    document.voice_preset_id = preset.id  # it opens with this voice next time
+    await session.commit()
     start_generation(document_id, preset.id, front=body.front)
     return await _build_status(session, document_id, preset)
 
@@ -223,7 +228,8 @@ async def regenerate_outdated(
 ):
     """Deletes audio made with old pronunciations or paragraph pauses, then
     generates it again."""
-    if await session.get(Document, document_id) is None:
+    document = await session.get(Document, document_id)
+    if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
     preset = await _get_preset(session, body.voice_preset_id)
     if preset.engine == "openai" and not settings.openai_api_key:
@@ -244,6 +250,7 @@ async def regenerate_outdated(
     ]
     for a in outdated:
         await session.delete(a)
+    document.voice_preset_id = preset.id  # it opens with this voice next time
     await session.commit()
     remove_files([a.file_path for a in outdated])
 
@@ -257,7 +264,8 @@ async def delete_audio(
 ):
     """Cancels generation of a document with a voice and deletes the audio
     already made with it. Other voices' audio and the document are kept."""
-    if await session.get(Document, document_id) is None:
+    document = await session.get(Document, document_id)
+    if document is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
     preset = await _get_preset(session, voice_preset_id)
     await cancel_generation(document_id=document_id, preset_id=preset.id)
@@ -270,6 +278,10 @@ async def delete_audio(
     ).all()
     for a in audio:
         await session.delete(a)
+    # With its audio gone, the document opens with another voice that has
+    # audio for it, if any (see the document's detail).
+    if document.voice_preset_id == preset.id:
+        document.voice_preset_id = None
     await session.commit()
     remove_files([a.file_path for a in audio])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -283,6 +295,22 @@ async def audio_status(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
     preset = await _get_preset(session, voice_preset_id)
     return await _build_status(session, document_id, preset)
+
+
+@router.get("/documents/{document_id}/voice-audio", response_model=list[VoiceAudio])
+async def voice_audio(document_id: int, session: AsyncSession = Depends(get_session)):
+    """The voices that have audio for a document (or are generating it), so
+    the Reader's voice menu can point them out."""
+    if await session.get(Document, document_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
+    ready = await audio_counts(session, document_id)
+    generating = {
+        p for d, p in queued_jobs() if d == document_id and jobs.get((d, p), {}).get("running")
+    }
+    return [
+        VoiceAudio(voice_preset_id=p, ready=ready.get(p, 0), generating=p in generating)
+        for p in ready.keys() | generating
+    ]
 
 
 @router.get("/chunks/{chunk_id}/audio")

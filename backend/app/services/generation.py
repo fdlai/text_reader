@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 from mutagen.mp3 import MP3
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -52,6 +52,19 @@ _paused = False
 def remove_files(paths: list[str]) -> None:
     for p in paths:
         Path(p).unlink(missing_ok=True)
+
+
+async def audio_counts(session: AsyncSession, document_id: int) -> dict[int, int]:
+    """How many of a document's chunks have audio, by voice preset id. Only
+    a preset's current model counts, as elsewhere."""
+    rows = await session.execute(
+        select(AudioFile.voice_preset_id, VoicePreset.engine, AudioFile.model, func.count())
+        .join(Chunk, Chunk.id == AudioFile.chunk_id)
+        .join(VoicePreset, VoicePreset.id == AudioFile.voice_preset_id)
+        .where(Chunk.document_id == document_id)
+        .group_by(AudioFile.voice_preset_id, VoicePreset.engine, AudioFile.model)
+    )
+    return {p: n for p, engine, model, n in rows if model == model_name(engine)}
 
 
 def _write_audio(path: Path, data: bytes) -> float:

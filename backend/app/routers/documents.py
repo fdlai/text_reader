@@ -9,12 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_session
-from app.models import AudioFile, Chunk, Collection, Document, PlaybackProgress
+from app.models import AudioFile, Chunk, Collection, Document, PlaybackProgress, VoicePreset
 from app.schemas import (
     DocumentCreate,
     DocumentDetail,
     DocumentIds,
     DocumentsMove,
+    DocumentVoice,
     LibraryItem,
     Progress,
 )
@@ -23,6 +24,7 @@ from app.services.covers import cover_path, save_cover
 from app.services.extractor import ExtractionError, extract_article
 from app.services.fetcher import FetchError, fetch_html
 from app.services.deletion import delete_documents
+from app.services.generation import audio_counts
 from app.services.next_link import without_fragment
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -103,6 +105,12 @@ async def _detail(session: AsyncSession, document: Document) -> DocumentDetail:
         detail.next_document_id = await session.scalar(
             select(Document.id).where(Document.source_url == document.next_url)
         )
+    # Not played or generated since this was added (or its audio was
+    # deleted): the voice with the most audio for it, if any.
+    if detail.voice_preset_id is None:
+        counts = await audio_counts(session, document.id)
+        if counts:
+            detail.voice_preset_id = max(counts, key=counts.get)
     return detail
 
 
@@ -291,6 +299,22 @@ async def save_progress(
             set_={**body.model_dump(), "updated_at": func.now()},
         )
     )
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/{document_id}/voice", status_code=status.HTTP_204_NO_CONTENT)
+async def set_voice(
+    document_id: int, body: DocumentVoice, session: AsyncSession = Depends(get_session)
+):
+    """Remembers the voice a document is being played with, so it opens with
+    that voice next time. (Generating with a voice does the same.)"""
+    document = await session.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
+    if await session.get(VoicePreset, body.voice_preset_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Voice preset not found.")
+    document.voice_preset_id = body.voice_preset_id
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

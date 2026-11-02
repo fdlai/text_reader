@@ -49,7 +49,7 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
 
   async function refresh() {
     setEntries(await listPronunciations());
-    onChange();
+    onChange?.();
   }
 
   function reset() {

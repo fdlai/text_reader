@@ -44,6 +44,12 @@ class Document(Base):
     source_url: Mapped[str] = mapped_column(Text, unique=True)
     # The page's link to its next part (e.g. the next chapter), if it has one.
     next_url: Mapped[str | None] = mapped_column(Text)
+    # The voice it was last played or generated with, so it opens with that
+    # voice next time. Deleting the voice (or its audio for this document)
+    # clears it.
+    voice_preset_id: Mapped[int | None] = mapped_column(
+        ForeignKey("voice_presets.id", ondelete="SET NULL")
+    )
     title: Mapped[str] = mapped_column(String(500))
     text: Mapped[str] = mapped_column(Text)
     # The type of the saved cover image (e.g. "image/jpeg"), or None if the
