@@ -186,7 +186,9 @@ export default function PlayerBar() {
           <input
             type="range"
             min={0}
-            max={timeline.total}
+            // Rounded up: with whole-second steps, the slider couldn't
+            // otherwise reach the exact end (which finishes the article).
+            max={Math.ceil(timeline.total)}
             step={1}
             value={position}
             onChange={(e) => seekTo(Number(e.target.value))}

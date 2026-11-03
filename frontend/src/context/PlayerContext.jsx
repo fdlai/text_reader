@@ -333,8 +333,18 @@ export function PlayerProvider({ children }) {
     (newPosition) => {
       const target = fromPosition(timeline, newPosition);
       goTo(target.index, target.offset);
+      // Going to the very end (skipping or dragging there) finishes the
+      // article, as listening to the end does. This doesn't wait for the
+      // audio's last moments to play: the stored length can be a few
+      // milliseconds short, which left it paused just before the end.
+      // Not while the last chunk has no audio, since its length is a guess.
+      const lastChunk = session.chunks[session.chunks.length - 1];
+      if (newPosition >= timeline.total && lastChunk.id in chunkAudio) {
+        setPlaying(false);
+        setFinished(true);
+      }
     },
-    [timeline, goTo],
+    [timeline, goTo, session, chunkAudio],
   );
 
   const jumpTo = useCallback(

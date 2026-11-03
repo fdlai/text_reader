@@ -42,6 +42,19 @@ const SCROLL_KEYS = new Set([
   "End",
 ]);
 
+// True if el is inside a box with its own scrollbar (not the page itself).
+function insideScrollingBox(el) {
+  for (let box = el; box && box !== document.body; box = box.parentElement) {
+    const { overflowY } = getComputedStyle(box);
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      box.scrollHeight > box.clientHeight
+    )
+      return true;
+  }
+  return false;
+}
+
 // The text's line height, as a multiple of the font size.
 const LINE_HEIGHT = 1.8;
 // While following with "Page turns" (see SCROLL_STYLES), the page scrolls
@@ -320,9 +333,14 @@ export default function Reader() {
   useEffect(() => {
     const stop = () => setFollowing(false);
     function handleKey(e) {
-      // Arrow keys inside the voice picker or progress bar don't scroll the page.
-      const inControl = e.target.closest("input, select, textarea, button");
-      if (SCROLL_KEYS.has(e.key) && !inControl) stop();
+      if (!SCROLL_KEYS.has(e.key)) return;
+      // Arrow keys in a slider, box or menu move that, not the page.
+      if (e.target.closest("input, select, textarea")) return;
+      // Nor does a key pressed inside a scrolling list (like the voice
+      // picker's): it scrolls the list. A focused button elsewhere (say, Play
+      // after clicking it) does let the keys scroll the page.
+      if (insideScrollingBox(e.target)) return;
+      stop();
     }
     function handlePointerDown(e) {
       // A press on the page's scrollbar targets the <html> element.
