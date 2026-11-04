@@ -136,8 +136,10 @@ class Preferences(BaseModel):
     align: Literal["left", "justify"] = "left"
     # Split long words with a hyphen at the end of a line.
     hyphenate: bool = False
-    # The keys of PARAGRAPH_SPACINGS in frontend/src/context/preferences.js.
-    paragraph_spacing: Literal["compact", "normal", "wide"] = "normal"
+    # The space between paragraphs, in em (so it grows with the font size),
+    # in steps of 0.25. See PARAGRAPH_SPACING in
+    # frontend/src/context/preferences.js.
+    paragraph_spacing: float = Field(default=1.0, ge=0, le=3)
     page_width: Literal["normal", "wide", "full"] = "normal"
     highlight_words: bool = True
     # The keys of HIGHLIGHT_COLORS in frontend/src/context/preferences.js.
@@ -163,6 +165,13 @@ class Preferences(BaseModel):
         if self.default_voice is None and self.recent_voices:
             self.default_voice = self.recent_voices[0]
         return self
+
+    @field_validator("paragraph_spacing", mode="before")
+    @classmethod
+    def spacing_em(cls, value):
+        # Saved before the slider existed, as the name of a preset.
+        value = {"compact": 0.5, "normal": 1.0, "wide": 2.0}.get(value, value)
+        return round(float(value) * 4) / 4
 
     @field_validator("paragraph_pause", mode="before")
     @classmethod

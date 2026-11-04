@@ -23,7 +23,6 @@ import { SKIP_SECONDS, usePlayer } from "../context/PlayerContext";
 import {
   FONTS,
   HIGHLIGHT_COLORS,
-  PARAGRAPH_SPACINGS,
   SCROLL_SPEEDS,
   usePreferences,
 } from "../context/preferences";
@@ -893,7 +892,7 @@ export default function Reader() {
           // See-through tints used by the highlights (see ChunkText).
           "--highlight-word": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.4)`,
           "--highlight-chunk": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.15)`,
-          "--paragraph-gap": `${PARAGRAPH_SPACINGS[prefs.paragraph_spacing].em}em`,
+          "--paragraph-gap": `${prefs.paragraph_spacing}em`,
           // Sections already have 1rem of padding between them (p-2 above
           // and below, for the section highlight), so the gap between them
           // is that much less. That way the last paragraph of a section and

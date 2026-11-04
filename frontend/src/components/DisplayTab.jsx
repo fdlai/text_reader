@@ -3,7 +3,7 @@ import {
   FONTS,
   HIGHLIGHT_COLORS,
   PAGE_WIDTHS,
-  PARAGRAPH_SPACINGS,
+  PARAGRAPH_SPACING,
   SCROLL_SPEEDS,
   SCROLL_STYLES,
   usePreferences,
@@ -155,17 +155,37 @@ export default function DisplayTab() {
         />
       </Section>
 
-      <Section title="Paragraph spacing">
-        <Segmented
-          options={Object.fromEntries(
-            Object.entries(PARAGRAPH_SPACINGS).map(([key, { label }]) => [
-              key,
-              label,
-            ]),
-          )}
+      <Section title={`Paragraph spacing: ${prefs.paragraph_spacing}×`}>
+        <input
+          type="range"
+          min={0}
+          max={PARAGRAPH_SPACING.max}
+          step={PARAGRAPH_SPACING.step}
           value={prefs.paragraph_spacing}
-          onChange={(paragraph_spacing) => update({ paragraph_spacing })}
+          onChange={(e) =>
+            update({ paragraph_spacing: Number(e.target.value) })
+          }
+          aria-label="Paragraph spacing"
+          className="w-full accent-black"
         />
+        {/* "default" sits under its spot on the slider, and clicking it
+            goes back there. */}
+        <div className="relative h-4 text-xs text-gray-500">
+          <span className="absolute left-0">Tight</span>
+          <button
+            onClick={() =>
+              update({ paragraph_spacing: PARAGRAPH_SPACING.default })
+            }
+            title="Back to the default spacing"
+            className="absolute -translate-x-1/2 hover:text-black"
+            style={{
+              left: `${(PARAGRAPH_SPACING.default / PARAGRAPH_SPACING.max) * 100}%`,
+            }}
+          >
+            default
+          </button>
+          <span className="absolute right-0">Wide</span>
+        </div>
       </Section>
 
       <Section title="Highlight">

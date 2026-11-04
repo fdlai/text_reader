@@ -8,7 +8,7 @@ export const DEFAULTS = {
   font_size: 18,
   align: "left",
   hyphenate: false,
-  paragraph_spacing: "normal",
+  paragraph_spacing: 1,
   page_width: "normal",
   highlight_words: true,
   highlight_color: "yellow",
@@ -98,12 +98,10 @@ export const PAGE_WIDTHS = {
 
 // The space between paragraphs, in em so it grows with the font size.
 // It's added on top of the space between lines (from the line height), so
-// even Compact leaves paragraphs further apart than lines.
-export const PARAGRAPH_SPACINGS = {
-  compact: { label: "Compact", em: 0.5 },
-  normal: { label: "Normal", em: 1 },
-  wide: { label: "Wide", em: 2 },
-};
+// even 0 leaves paragraphs as far apart as lines. Shown as a multiple of the
+// default (1em), e.g. "1.5×". (The old presets were Compact 0.5, Normal 1
+// and Wide 2; the backend converts them.)
+export const PARAGRAPH_SPACING = { max: 3, step: 0.25, default: 1 };
 
 // How the page scrolls to keep up with the reading (see the Reader).
 export const SCROLL_STYLES = {
