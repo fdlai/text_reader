@@ -25,8 +25,10 @@ function audioLabel({ ready, generating }, total) {
 // The Reader's voice chooser: a button showing the current voice, which
 // opens a panel with the voices that have audio for this article, recently
 // used voices, and a tab per engine. Every voice has a ▶ button that plays
-// its saved sample clip.
+// its saved sample clip. With compact, the button is small text instead of
+// a box (as under the listen bar's label in the Reader).
 export default function VoicePicker({
+  compact = false,
   voices,
   value,
   onChange,
@@ -161,7 +163,11 @@ export default function VoicePicker({
       <button
         onClick={toggleOpen}
         aria-expanded={open}
-        className="flex items-center gap-2 rounded border border-gray-300 px-3 py-2"
+        className={
+          compact
+            ? "flex items-center gap-1.5 text-sm text-gray-700 hover:text-black hover:underline"
+            : "flex items-center gap-2 rounded border border-gray-300 px-3 py-2"
+        }
       >
         {current ? (
           <>

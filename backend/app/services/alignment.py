@@ -130,8 +130,17 @@ def word_start_times(
     # fine when that stretch is played to it alone. So each run of unheard
     # words is listened to again, with a little before and after.
     for first, last in _unheard_runs(starts):
-        timed_before = [i for i in range(first) if starts[i] is not None]
-        timed_after = [i for i in range(last, len(words)) if starts[i] is not None]
+        # The clip is cut around heard words with some length. When Whisper
+        # skips a stretch, it can report a few of the skipped words with no
+        # length (start = end) where it picks up again, seconds after they
+        # were spoken. A clip starting from those would miss the skipped
+        # speech. (Their times are otherwise kept: after a pause, a word
+        # with no length often does start when Whisper says.)
+        def anchor(i):
+            return starts[i] is not None and ends[i] > starts[i]
+
+        timed_before = [i for i in range(first) if anchor(i)]
+        timed_after = [i for i in range(last, len(words)) if anchor(i)]
         first = timed_before[-RETRY_CONTEXT] if len(timed_before) >= RETRY_CONTEXT else 0
         last = (
             timed_after[RETRY_CONTEXT] if len(timed_after) > RETRY_CONTEXT else len(words)

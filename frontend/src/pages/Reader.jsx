@@ -13,6 +13,7 @@ import {
 } from "../api";
 import ChunkText from "../components/ChunkText";
 import EngineNotice from "../components/EngineNotice";
+import ListenBar from "../components/ListenBar";
 import MoveDialog from "../components/MoveDialog";
 import PreferencesPanel from "../components/PreferencesPanel";
 import VoicePicker from "../components/VoicePicker";
@@ -29,7 +30,12 @@ import {
 import { defaultVoiceId } from "../engines";
 import { collectionPath } from "../paths";
 import { useEngines } from "../useEngines";
-import { chunkLength, wordIndexAt } from "../timeline";
+import {
+  buildTimeline,
+  chunkLength,
+  toPosition,
+  wordIndexAt,
+} from "../timeline";
 
 // Space isn't included: on this page it plays and pauses (see shortcuts).
 const SCROLL_KEYS = new Set([
@@ -162,6 +168,12 @@ function readingY(chunkEl, offset, length) {
   const rect = chunkEl.getBoundingClientRect();
   const fraction = length ? Math.min(offset / length, 1) : 0;
   return rect.top + fraction * rect.height;
+}
+
+// A length of listening time, e.g. "16 min" or "1 h 5 min" (at least 1 min).
+function minutes(seconds) {
+  const m = Math.max(1, Math.round(seconds / 60));
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
 // What the player needs to know about a document to play it.
@@ -711,38 +723,130 @@ export default function Reader() {
     else play(progress.chunk_index, progress.offset_sec);
   }
 
-  const listenAgain = (
-    <button
-      onClick={() => play(0, 0)}
-      className="rounded bg-black px-4 py-2 text-white"
-    >
-      Listen again
-    </button>
+  // The listen bar's fill and status. The article as one timeline (sections
+  // without audio yet are estimated), how much of it has audio, and where
+  // listening is on it.
+  const docTimeline = buildTimeline(
+    doc.chunks,
+    Object.fromEntries(readyChunks.map((c) => [c.chunk_id, c.duration_sec])),
   );
+  const madeSeconds = readyChunks.reduce((sum, c) => sum + c.duration_sec, 0);
+  const listenedSeconds = finished
+    ? docTimeline.total
+    : sameSession
+      ? player.position
+      : progress
+        ? toPosition(docTimeline, progress.chunk_index, progress.offset_sec)
+        : 0;
+  const percent = (seconds) =>
+    docTimeline.total ? Math.min((seconds / docTimeline.total) * 100, 100) : 0;
+  // Times are shown in real time, so at 2x a 10-minute article takes 5.
+  const rate = sameSession
+    ? player.rate
+    : speedFor(presetId, preset?.speed ?? 1);
+
+  // The round button: generate before there's audio, then play and so on.
+  const action = !isReady(0)
+    ? status?.generating
+      ? { icon: "wait", label: "Preparing audio", disabled: true }
+      : {
+          icon: "generate",
+          label: "Generate audio",
+          onClick: () => handleGenerate(),
+          disabled: !status || !canGenerate,
+        }
+    : finished
+      ? { icon: "again", label: "Listen again", onClick: () => play(0, 0) }
+      : sameSession && player.playing
+        ? { icon: "pause", label: "Pause", onClick: player.toggle }
+        : {
+            icon: "play",
+            label: listenedSeconds > 0 ? "Continue" : "Play",
+            onClick: sameSession ? player.toggle : resume,
+          };
+
+  const statusButtonClass =
+    "underline decoration-gray-400 underline-offset-2 hover:text-black hover:decoration-black";
+  let barStatus = null;
+  if (status?.generating) {
+    // The queue panel has the controls (reorder, pause, remove), so the
+    // status opens it.
+    const what = generation.paused
+      ? "Generation paused"
+      : status.queue_position > 0
+        ? `Queued, ${status.queue_position} ahead`
+        : "Generating";
+    barStatus = (
+      <button
+        onClick={() => generation.openQueue(queueKey(documentId, presetId))}
+        title="Open the generation queue, with this article selected"
+        data-queue-toggle
+        className={statusButtonClass}
+      >
+        {what}: {readyChunks.length} of {status.chunks.length} sections ready
+      </button>
+    );
+  } else if (status && !allReady && isReady(0) && canGenerate) {
+    barStatus = (
+      <button onClick={() => handleGenerate()} className={statusButtonClass}>
+        Generate remaining audio
+      </button>
+    );
+  } else if (allReady) {
+    barStatus = finished
+      ? `Finished · ${minutes(docTimeline.total / rate)}`
+      : `${minutes((docTimeline.total - listenedSeconds) / rate)} left`;
+  }
+
+  // Only pages with a next part (e.g. a novel's chapters) have one. It's
+  // the strongest button once this one is finished.
+  const nextClass = `flex h-11 items-center gap-2 rounded-full px-3.5 font-medium whitespace-nowrap ${
+    finished
+      ? "bg-black text-white hover:opacity-85"
+      : "hover:bg-black/5 disabled:opacity-50"
+  }`;
+  const nextPart =
+    doc.next_url &&
+    (doc.next_document_id ? (
+      <Link to={`/documents/${doc.next_document_id}`} className={nextClass}>
+        Next part →
+      </Link>
+    ) : (
+      <button
+        onClick={() => handleNextPart(false)}
+        disabled={addingNext}
+        title="Adds it to this collection and starts generating its audio"
+        className={nextClass}
+      >
+        {addingNext ? "Adding next part..." : "Add next part"}
+      </button>
+    ));
+
+  const menu = [
+    { label: "Move to another collection", onClick: () => setMoving(true) },
+    { label: "Open original page ↗", href: doc.source_url },
+    status?.generating
+      ? {
+          note: "To delete this audio while it's generating, remove it from the queue.",
+        }
+      : readyChunks.length > 0 && {
+          label: `Delete ${preset?.name ?? "this voice"}'s audio`,
+          onClick: handleDeleteAudio,
+          danger: true,
+        },
+  ].filter(Boolean);
 
   return (
     // The extra bottom space keeps the floating button above the player bar
     // from covering the last line.
     <article className="pb-16">
-      <h1 className="text-3xl font-semibold">{doc.title}</h1>
-      <a
-        href={doc.source_url}
-        target="_blank"
-        rel="noreferrer"
-        className="mt-1 block truncate text-sm text-gray-500 hover:underline"
+      <Link
+        to={libraryPath}
+        className="mb-2 inline-block text-[13px] font-semibold tracking-wide text-gray-500 uppercase hover:text-black"
       >
-        {doc.source_url}
-      </a>
-      <p className="mt-1 text-sm text-gray-500">
-        In{" "}
-        <Link to={libraryPath} className="hover:underline">
-          {collectionName}
-        </Link>{" "}
-        ·{" "}
-        <button onClick={() => setMoving(true)} className="hover:text-black">
-          Move
-        </button>
-      </p>
+        {collectionName}
+      </Link>
+      <h1 className="text-3xl font-semibold text-balance">{doc.title}</h1>
       {moving && (
         <MoveDialog
           count={1}
@@ -752,98 +856,28 @@ export default function Reader() {
         />
       )}
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <VoicePicker
-          voices={voices}
-          value={presetId}
-          onChange={handleVoiceChange}
-          recent={prefs.recent_voices}
-          engines={engines}
-          documentId={documentId}
-          totalSections={doc.chunks.length}
-          defaultId={defaultVoiceId(voices, prefs.default_voice)}
-          onMakeDefault={(id) => update({ default_voice: id })}
-        />
-
-        {isReady(0) &&
-          (finished ? (
-            <>
-              <span className="text-sm text-gray-500">✓ Finished</span>
-              {listenAgain}
-            </>
-          ) : sameSession ? (
-            <button
-              onClick={player.toggle}
-              className="rounded bg-black px-4 py-2 text-white"
-            >
-              {player.playing ? "Pause" : "Play"}
-            </button>
-          ) : (
-            <button
-              onClick={resume}
-              className="rounded bg-black px-4 py-2 text-white"
-            >
-              Play
-            </button>
-          ))}
-
-        {status && !allReady && !status.generating && canGenerate && (
-          <button
-            onClick={() => handleGenerate()}
-            className="rounded border border-gray-300 px-4 py-2"
-          >
-            {readyChunks.length ? "Generate remaining audio" : "Generate audio"}
-          </button>
-        )}
-
-        {/* The queue panel has the controls (reorder, pause, remove), so
-            the status opens it. */}
-        {status?.generating && (
-          <button
-            onClick={() => generation.openQueue(queueKey(documentId, presetId))}
-            title="Open the generation queue, with this article selected"
-            data-queue-toggle
-            className="text-sm text-gray-500 underline decoration-gray-300 underline-offset-2 hover:text-black hover:decoration-black"
-          >
-            {generation.paused
-              ? "Generation paused: "
-              : status.queue_position > 0
-                ? `Queued: ${status.queue_position} ${status.queue_position === 1 ? "article" : "articles"} ahead. `
-                : "Generating audio: "}
-            {readyChunks.length} of {status.chunks.length} sections ready
-          </button>
-        )}
-
-        {/* While generating, it's removed from the queue panel instead. */}
-        {!status?.generating && readyChunks.length > 0 && (
-          <button
-            onClick={handleDeleteAudio}
-            className="text-sm text-gray-500 hover:text-red-600"
-          >
-            Delete audio
-          </button>
-        )}
-
-        {/* Only pages with a next part (e.g. a novel's chapters) have one. */}
-        {doc.next_url &&
-          (doc.next_document_id ? (
-            <Link
-              to={`/documents/${doc.next_document_id}`}
-              className="text-sm text-gray-500 hover:underline"
-            >
-              Open next part →
-            </Link>
-          ) : (
-            <button
-              onClick={() => handleNextPart(false)}
-              disabled={addingNext}
-              title="Adds it to this collection and starts generating its audio"
-              className="text-sm text-gray-500 hover:underline disabled:opacity-50"
-            >
-              {addingNext ? "Adding next part..." : "Add next part"}
-            </button>
-          ))}
-      </div>
+      <ListenBar
+        action={action}
+        voice={
+          <VoicePicker
+            compact
+            voices={voices}
+            value={presetId}
+            onChange={handleVoiceChange}
+            recent={prefs.recent_voices}
+            engines={engines}
+            documentId={documentId}
+            totalSections={doc.chunks.length}
+            defaultId={defaultVoiceId(voices, prefs.default_voice)}
+            onMakeDefault={(id) => update({ default_voice: id })}
+          />
+        }
+        status={barStatus}
+        next={nextPart}
+        menu={menu}
+        made={percent(madeSeconds)}
+        heard={percent(listenedSeconds)}
+      />
 
       {status && !allReady && (
         <div className="mt-3">
