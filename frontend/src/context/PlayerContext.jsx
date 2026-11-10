@@ -239,7 +239,9 @@ export function PlayerProvider({ children }) {
     };
   }, [saveNow]);
 
-  const start = useCallback(
+  // Loads an article (with one voice) into the player at a position, playing
+  // it right away if autoplay, or paused there otherwise. close unloads it.
+  const load = useCallback(
     (
       newSession,
       newChunkAudio,
@@ -249,6 +251,10 @@ export function PlayerProvider({ children }) {
       autoplay = true,
       startFinished = false,
     ) => {
+      // The article being left may still have a save waiting (e.g. finished
+      // a moment ago, then "Next part" was clicked). Save it now, or it would
+      // be lost: once the new article loads, the waiting save sees only that.
+      saveNow();
       pendingOffsetRef.current = startOffset || null;
       // The starting point is already saved (it usually came from the
       // server), so there's no need to save it again.
@@ -266,7 +272,7 @@ export function PlayerProvider({ children }) {
       setRate(newRate);
       setPlaying(autoplay);
     },
-    [],
+    [saveNow],
   );
 
   // Stops and unloads the player, e.g. when its audio is being deleted. The
@@ -430,7 +436,7 @@ export function PlayerProvider({ children }) {
     speedFor,
     timeline,
     position,
-    start,
+    load,
     close,
     saveNow,
     updateChunkAudio,

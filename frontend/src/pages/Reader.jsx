@@ -312,13 +312,13 @@ export default function Reader() {
   // On opening a document, load it into the player paused at the saved
   // position, so the progress bar shows where listening left off. Skipped
   // if something is playing, so opening a page never interrupts it.
-  const { start, speedFor } = player;
+  const { load, speedFor } = player;
   useEffect(() => {
     const preset = voices.find((v) => v.id === presetId);
     const hasAudio = status?.chunks.some((c) => c.ready);
     if (!doc || !progress || !preset || !hasAudio) return;
     if (player.playing || sameSession) return;
-    start(
+    load(
       playerSession(doc, presetId),
       readyAudio(status),
       progress.chunk_index,
@@ -335,7 +335,7 @@ export default function Reader() {
     status,
     player.playing,
     sameSession,
-    start,
+    load,
     speedFor,
   ]);
 
@@ -708,7 +708,7 @@ export default function Reader() {
       player.jumpTo(index, offset);
       return;
     }
-    player.start(
+    player.load(
       playerSession(doc, presetId),
       readyAudio(status),
       index,
