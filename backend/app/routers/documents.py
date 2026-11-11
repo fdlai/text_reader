@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
@@ -150,24 +151,48 @@ async def list_documents(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=MAX_PAGE_SIZE),
     q: str = "",
+    sort: Literal["newest", "oldest", "listened"] = "newest",
+    progress: Literal["all", "not-started", "in-progress", "finished"] = "all",
     session: AsyncSession = Depends(get_session),
 ):
-    """One page of the documents in one collection, newest first, or with
-    unsorted=true those in none. With neither, every document. With q, only
-    those whose title contains it (ignoring capitals)."""
-    query = select(Document)
+    """One page of the documents in one collection, or with unsorted=true
+    those in none. With neither, every document.
+
+    q: only those whose title contains it (ignoring capitals).
+    sort: newest or oldest added first, or most recently listened to first
+    (then those never played, newest first).
+    progress: only those not started, started but not finished, or finished.
+    """
+    # Every document, with its listening progress if it has any.
+    query = select(Document).outerjoin(PlaybackProgress)
     if collection_id is not None:
         query = query.where(Document.collection_id == collection_id)
     elif unsorted:
         query = query.where(Document.collection_id.is_(None))
     if q.strip():
         query = query.where(Document.title.icontains(q.strip(), autoescape=True))
+    if progress == "not-started":
+        query = query.where(PlaybackProgress.document_id.is_(None))
+    elif progress == "in-progress":
+        query = query.where(PlaybackProgress.finished.is_(False))
+    elif progress == "finished":
+        query = query.where(PlaybackProgress.finished.is_(True))
     total = await session.scalar(select(func.count()).select_from(query.subquery()))
+
+    # The id last decides between documents added (or listened to) at the
+    # same moment, so the order, and so each page, is always the same.
+    order = {
+        "newest": [Document.created_at.desc(), Document.id.desc()],
+        "oldest": [Document.created_at, Document.id],
+        "listened": [
+            PlaybackProgress.updated_at.desc().nulls_last(),
+            Document.created_at.desc(),
+            Document.id.desc(),
+        ],
+    }[sort]
     documents = (
         await session.scalars(
-            # The id decides between documents added at the same moment, so
-            # the order (and so each page) is always the same.
-            query.order_by(Document.created_at.desc(), Document.id.desc())
+            query.order_by(*order)
             .offset((page - 1) * page_size)
             .limit(page_size)
             .options(selectinload(Document.progress))

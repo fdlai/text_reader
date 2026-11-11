@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, or_, select
@@ -30,22 +31,53 @@ async def list_collections(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=24, ge=1, le=MAX_PAGE_SIZE),
     q: str = "",
+    sort: Literal["listened", "name"] = "listened",
+    exclude: int | None = None,
+    with_unsorted: bool = True,
     session: AsyncSession = Depends(get_session),
 ):
-    """One page of the collections, by name, then Unsorted if anything is in
-    it. With q, only those whose name contains it (ignoring capitals)."""
+    """One page of the collections, then Unsorted if anything is in it.
+
+    q: only those whose name contains it (ignoring capitals).
+    sort: the one with an article most recently listened to first (then
+    those with none listened to, by name), or by name. By name, names that
+    start with q come first: searching "re" lists "Return" before "Pre-read".
+    exclude: a collection to leave out, and with_unsorted=false leaves out
+    Unsorted (e.g. when choosing where to move articles).
+    """
     q = q.strip()
     named = select(Collection)
     if q:
         named = named.where(Collection.name.icontains(q, autoescape=True))
+    if exclude is not None:
+        named = named.where(Collection.id != exclude)
     named_total = await session.scalar(
         select(func.count()).select_from(named.subquery())
     )
     offset = (page - 1) * page_size
-    collections = (
-        await session.scalars(
-            named.order_by(func.lower(Collection.name)).offset(offset).limit(page_size)
+    by_name = func.lower(Collection.name)
+    if sort == "listened":
+        # When each collection was last listened to: its latest progress save.
+        last_listened = (
+            select(
+                Document.collection_id,
+                func.max(PlaybackProgress.updated_at).label("at"),
+            )
+            .join(PlaybackProgress)
+            .group_by(Document.collection_id)
+            .subquery()
         )
+        named = named.outerjoin(
+            last_listened, last_listened.c.collection_id == Collection.id
+        ).order_by(last_listened.c.at.desc().nulls_last(), by_name)
+    elif q:
+        # True sorts after false, so descending puts the matches first.
+        starts = Collection.name.istartswith(q, autoescape=True)
+        named = named.order_by(starts.desc(), by_name)
+    else:
+        named = named.order_by(by_name)
+    collections = (
+        await session.scalars(named.offset(offset).limit(page_size))
     ).all()
 
     # Unsorted counts as one more collection after the named ones, so it's on
@@ -53,7 +85,7 @@ async def list_collections(
     unsorted_count = await session.scalar(
         select(func.count()).select_from(Document).where(Document.collection_id.is_(None))
     )
-    show_unsorted = unsorted_count > 0 and q.lower() in "unsorted"
+    show_unsorted = with_unsorted and unsorted_count > 0 and q.lower() in "unsorted"
     unsorted_here = show_unsorted and offset <= named_total < offset + page_size
 
     # Only this page's collections are looked at below.

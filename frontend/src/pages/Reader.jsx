@@ -780,7 +780,6 @@ export default function Reader() {
       <button
         onClick={() => generation.openQueue(queueKey(documentId, presetId))}
         title="Open the generation queue, with this article selected"
-        data-queue-toggle
         className={statusButtonClass}
       >
         {what}: {readyChunks.length} of {status.chunks.length} sections ready
@@ -851,6 +850,7 @@ export default function Reader() {
         <MoveDialog
           count={1}
           currentId={doc.collection_id}
+          currentName={doc.collection_name}
           onMove={handleMove}
           onClose={() => setMoving(false)}
         />

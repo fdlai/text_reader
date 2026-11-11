@@ -26,18 +26,39 @@ const json = (method, body) => ({
   body: JSON.stringify(body),
 });
 
-// The address for one page of a list: page numbers start at 1, and q keeps
-// only items whose name or title contains it.
-function pagePath(path, { page = 1, pageSize, q = "" }, extra = {}) {
+// The address for one page of a list: page numbers start at 1. options
+// left out or empty (e.g. no search) use the server's default.
+function pagePath(path, { page = 1, pageSize, ...options }, extra = {}) {
   const params = new URLSearchParams({ ...extra, page, page_size: pageSize });
-  if (q) params.set("q", q);
+  for (const [name, value] of Object.entries(options)) {
+    if (value != null && value !== "") params.set(name, value);
+  }
   return `${path}?${params}`;
 }
 
 // One page of collections, as { items, total }. Unsorted (id null) counts
 // as one more collection after the others, if anything is in it.
-export const listCollections = ({ page, pageSize, q }) =>
-  request(pagePath("/collections", { page, pageSize, q }));
+// q: only those whose name contains it. sort: "listened" (the default) or
+// "name" (names starting with q first). exclude: a collection's id to leave
+// out; withUnsorted: false leaves out Unsorted.
+export const listCollections = ({
+  page,
+  pageSize,
+  q,
+  sort,
+  exclude,
+  withUnsorted,
+}) =>
+  request(
+    pagePath("/collections", {
+      page,
+      pageSize,
+      q,
+      sort,
+      exclude,
+      with_unsorted: withUnsorted,
+    }),
+  );
 
 export const getCollection = (id) => request(`/collections/${id}`);
 
@@ -53,13 +74,18 @@ export const deleteCollection = (id, deleteDocuments) =>
     method: "DELETE",
   });
 
-// One page of a collection's documents, newest first, as { items, total };
-// collectionId null means Unsorted.
-export const listDocuments = (collectionId, { page, pageSize, q }) =>
+// One page of a collection's documents, as { items, total }; collectionId
+// null means Unsorted. q: only those whose title contains it. sort:
+// "newest", "oldest" or "listened". progress: "not-started", "in-progress"
+// or "finished" to show only those.
+export const listDocuments = (
+  collectionId,
+  { page, pageSize, q, sort, progress },
+) =>
   request(
     pagePath(
       "/documents",
-      { page, pageSize, q },
+      { page, pageSize, q, sort, progress },
       collectionId === null
         ? { unsorted: true }
         : { collection_id: collectionId },

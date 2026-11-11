@@ -18,13 +18,32 @@ import MoveDialog from "../components/MoveDialog";
 import NameDialog from "../components/NameDialog";
 import Pagination from "../components/Pagination";
 import SearchBox from "../components/SearchBox";
+import SortSelect from "../components/SortSelect";
 import { useConfirm } from "../context/confirm";
 import { usePlayer } from "../context/PlayerContext";
 import { useListParams } from "../useListParams";
 
 const PAGE_SIZE = 50;
+// The first of each is the default.
+const SORTS = {
+  newest: "Newest added",
+  oldest: "Oldest added",
+  listened: "Recently listened",
+};
+const PROGRESS = {
+  all: "All",
+  "not-started": "Not started",
+  "in-progress": "In progress",
+  finished: "Finished",
+};
+// What the list says when nothing has that progress.
+const EMPTY = {
+  "not-started": "Every article here has been started.",
+  "in-progress": "Nothing in progress.",
+  finished: "No finished articles yet.",
+};
 
-// One collection's articles, newest first, where new ones are added.
+// One collection's articles, where new ones are added.
 // "unsorted" in the address shows the articles in no collection, which
 // can't be added to.
 export default function Collection() {
@@ -58,7 +77,11 @@ export default function Collection() {
   const player = usePlayer();
   const confirm = useConfirm();
   const { saveNow } = player;
-  const { page, q, setPage, setQuery } = useListParams();
+  const { page, q, setPage, setQuery, option, setOption } = useListParams();
+  const sort = option("sort", Object.keys(SORTS));
+  const progress = option("progress", Object.keys(PROGRESS));
+  // Whether only some of the articles are shown.
+  const filtered = Boolean(q) || progress !== "all";
   const pageCount = Math.ceil(total / PAGE_SIZE);
   const reload = () => setReloadKey((k) => k + 1);
 
@@ -71,7 +94,13 @@ export default function Collection() {
     Promise.all([
       collectionId === null ? null : getCollection(collectionId),
       saveNow().then(() =>
-        listDocuments(collectionId, { page, pageSize: PAGE_SIZE, q }),
+        listDocuments(collectionId, {
+          page,
+          pageSize: PAGE_SIZE,
+          q,
+          sort,
+          progress,
+        }),
       ),
     ])
       .then(([collection, { items, total }]) => {
@@ -88,14 +117,24 @@ export default function Collection() {
         }
         setDocuments(items);
         setTotal(total);
-        if (total > 0 || q) setSearchable(true);
+        if (total > 0 || filtered) setSearchable(true);
       })
       .catch((e) => current && setError(e.message))
       .finally(() => current && setLoading(false));
     return () => {
       current = false;
     };
-  }, [collectionId, page, q, reloadKey, saveNow, setPage]);
+  }, [
+    collectionId,
+    page,
+    q,
+    sort,
+    progress,
+    filtered,
+    reloadKey,
+    saveNow,
+    setPage,
+  ]);
 
   function changePage(n) {
     setPage(n);
@@ -110,10 +149,11 @@ export default function Collection() {
     setExistingId(null);
     try {
       await createDocument(url.trim(), collectionId);
-      // The newest is first, so it's on page 1, without a search. Reloaded
-      // rather than added, since the list includes each one's length.
-      if (page === 1 && !q) reload();
-      else setQuery("");
+      // Shown first in the usual view (newest first, nothing left out), so
+      // that view is shown. Reloaded rather than added, since the list
+      // includes each one's length.
+      if (page === 1 && !filtered && sort === "newest") reload();
+      else navigate({ search: "" });
       setUrl("");
     } catch (err) {
       setError(err.message);
@@ -272,24 +312,51 @@ export default function Collection() {
       )}
 
       {searchable && (
-        <div className="mt-6 flex items-center gap-4">
-          <SearchBox
-            value={q}
-            onSearch={setQuery}
-            placeholder="Search articles"
-          />
-          <span className="text-sm text-gray-500 tabular-nums">
-            {q
-              ? `${total} found`
-              : `${total} ${total === 1 ? "article" : "articles"}`}
-          </span>
-        </div>
+        <>
+          <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
+            <SearchBox
+              value={q}
+              onSearch={setQuery}
+              placeholder="Search articles"
+            />
+            <span className="mr-auto text-sm text-gray-500 tabular-nums">
+              {filtered
+                ? `${total} found`
+                : `${total} ${total === 1 ? "article" : "articles"}`}
+            </span>
+            <SortSelect
+              value={sort}
+              options={SORTS}
+              onChange={(value) => setOption("sort", value, "newest")}
+            />
+          </div>
+          <div
+            role="group"
+            aria-label="Show"
+            className="mt-3 flex flex-wrap gap-1.5 text-sm"
+          >
+            {Object.entries(PROGRESS).map(([value, label]) => (
+              <button
+                key={value}
+                onClick={() => setOption("progress", value, "all")}
+                aria-pressed={progress === value}
+                className={`rounded-full border px-3 py-1 ${
+                  progress === value
+                    ? "border-black bg-black text-white"
+                    : "border-gray-300 text-gray-600 hover:border-gray-400 hover:text-black"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Select mode: tick several articles to move them together. Ticks
           are kept when changing page. */}
       {documents.length > 0 && (
-        <div className="mt-4 flex min-h-9 flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
+        <div className="mt-2 flex min-h-9 flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
           {selected === null ? (
             <button
               onClick={() => setSelected([])}
@@ -349,6 +416,8 @@ export default function Collection() {
           <li className="py-3 text-gray-500">
             {q ? (
               `No articles match “${q}”.`
+            ) : progress !== "all" ? (
+              EMPTY[progress]
             ) : (
               <>
                 No articles yet.
@@ -378,11 +447,11 @@ export default function Collection() {
           return (
             <li
               key={doc.id}
-              className="flex items-center justify-between gap-4 py-3"
+              className="flex items-center justify-between gap-4"
             >
               {selected !== null ? (
                 // In Select mode a click anywhere on the row ticks it.
-                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-4">
+                <label className="-ml-3 flex min-w-0 flex-1 cursor-pointer items-center gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-row-hover">
                   <input
                     type="checkbox"
                     checked={selected.includes(doc.id)}
@@ -395,7 +464,7 @@ export default function Collection() {
                 <>
                   <Link
                     to={`/documents/${doc.id}`}
-                    className="flex min-w-0 flex-1 items-center gap-4"
+                    className="-ml-3 flex min-w-0 flex-1 items-center gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-row-hover"
                   >
                     {details}
                   </Link>
@@ -425,6 +494,7 @@ export default function Collection() {
         <MoveDialog
           count={moving.length}
           currentId={collectionId}
+          currentName={collectionId === null ? null : name}
           onMove={handleMove}
           onClose={() => setMoving(null)}
         />

@@ -68,7 +68,7 @@ function ProgressLine({ position, total, seekTo }) {
       onPointerMove={(e) => {
         if (e.currentTarget.hasPointerCapture(e.pointerId)) seekToPointer(e);
       }}
-      className="group fixed inset-x-0 bottom-0 flex h-3 cursor-pointer items-end"
+      className="group fixed inset-x-0 bottom-0 z-27 flex h-3 cursor-pointer items-end"
     >
       <div className="h-[3px] w-full bg-gray-200 transition-[height] group-hover:h-1.5">
         <div
@@ -148,7 +148,7 @@ export default function PlayerBar() {
         <>
           <div
             data-player-bar
-            className="fixed right-4 bottom-4 flex items-center gap-1 rounded-full border border-gray-200 bg-white p-1 shadow-lg"
+            className="fixed right-4 bottom-4 z-27 flex items-center gap-1 rounded-full border border-gray-200 bg-white p-1 shadow-lg"
           >
             <button
               onClick={toggle}
@@ -177,7 +177,7 @@ export default function PlayerBar() {
       <div
         data-player-bar
         inert={barHidden}
-        className={`fixed inset-x-0 bottom-0 border-t border-gray-200 bg-white transition-transform duration-300 motion-reduce:transition-none ${
+        className={`fixed inset-x-0 bottom-0 z-27 border-t border-gray-200 bg-white transition-transform duration-300 motion-reduce:transition-none ${
           barHidden ? "translate-y-full" : ""
         }`}
       >

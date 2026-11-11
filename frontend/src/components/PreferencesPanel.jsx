@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import DisplayTab from "./DisplayTab";
 import ListeningTab from "./ListeningTab";
+import PanelBackdrop from "./PanelBackdrop";
 import PronunciationsTab from "./PronunciationsTab";
 
 const TABS = [
@@ -21,78 +22,64 @@ export default function PreferencesPanel({
   onAudioChange,
 }) {
   const [tab, setTab] = useState(prefill ? "pronunciations" : "display");
-  const ref = useRef(null);
 
-  // Close when clicking outside the panel, or pressing Escape. Clicks on the
-  // player bar don't count, so playback can be controlled while the panel
-  // is open. Nor do clicks on a ⚙ button (header or player bar): it closes
-  // the panel itself, and otherwise would close it and reopen it. Neither do
-  // clicks and keys in a confirmation dialog, e.g. one opened from this panel.
+  // Close on Escape, except in a confirmation dialog (e.g. one opened from
+  // this panel), where Escape closes that. Clicking outside closes it too,
+  // see PanelBackdrop.
   useEffect(() => {
-    function handlePointerDown(e) {
-      if (e.target.closest("dialog")) return;
-      if (
-        !ref.current.contains(e.target) &&
-        !e.target.closest("[data-player-bar], [data-preferences-toggle]")
-      ) {
-        onClose();
-      }
-    }
     function handleKey(e) {
       if (e.key === "Escape" && !e.target.closest("dialog")) onClose();
     }
-    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKey);
-    };
+    return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
   return (
-    <aside
-      ref={ref}
-      className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm flex-col border-l border-gray-200 bg-white shadow-xl"
-    >
-      <div className="flex items-center justify-between px-5 pt-5">
-        <h2 className="text-xl font-semibold">Preferences</h2>
-        <button
-          onClick={onClose}
-          aria-label="Close preferences"
-          className="text-2xl leading-none text-gray-500 hover:text-black"
-        >
-          ×
-        </button>
-      </div>
-
-      <div className="mt-4 flex gap-4 border-b border-gray-200 px-5">
-        {TABS.map((t) => (
+    <>
+      <PanelBackdrop onClose={onClose} />
+      <aside className="fixed inset-y-0 right-0 z-30 flex w-full max-w-sm flex-col border-l border-gray-200 bg-white shadow-xl">
+        <div className="flex items-center justify-between px-5 pt-5">
+          <h2 className="text-xl font-semibold">Preferences</h2>
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`-mb-px border-b-2 pb-2 text-sm ${
-              tab === t.id
-                ? "border-black font-medium"
-                : "border-transparent text-gray-500 hover:text-black"
-            }`}
+            onClick={onClose}
+            aria-label="Close preferences"
+            className="text-2xl leading-none text-gray-500 hover:text-black"
           >
-            {t.label}
+            ×
           </button>
-        ))}
-      </div>
+        </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-5">
-        {tab === "display" && <DisplayTab />}
-        {tab === "listening" && <ListeningTab voice={voice} onChange={onAudioChange} />}
-        {tab === "pronunciations" && (
-          <PronunciationsTab
-            key={prefill?.n ?? 0}
-            prefill={prefill}
-            voice={voice}
-            onChange={onAudioChange}
-          />
-        )}
-      </div>
-    </aside>
+        <div className="mt-4 flex gap-4 border-b border-gray-200 px-5">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`-mb-px border-b-2 pb-2 text-sm ${
+                tab === t.id
+                  ? "border-black font-medium"
+                  : "border-transparent text-gray-500 hover:text-black"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          {tab === "display" && <DisplayTab />}
+          {tab === "listening" && (
+            <ListeningTab voice={voice} onChange={onAudioChange} />
+          )}
+          {tab === "pronunciations" && (
+            <PronunciationsTab
+              key={prefill?.n ?? 0}
+              prefill={prefill}
+              voice={voice}
+              onChange={onAudioChange}
+            />
+          )}
+        </div>
+      </aside>
+    </>
   );
 }

@@ -156,7 +156,6 @@ export default function Header() {
         <button
           onClick={generation.toggleQueue}
           title={queueTitle}
-          data-queue-toggle
           className={`ml-auto flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-sm ${
             generation.queueOpen
               ? "border-black text-black"
@@ -177,7 +176,6 @@ export default function Header() {
           onClick={togglePanel}
           title="Preferences (P)"
           aria-label="Preferences"
-          data-preferences-toggle
           className="text-lg text-gray-600 hover:text-black"
         >
           ⚙

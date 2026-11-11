@@ -7,8 +7,16 @@
  * "white" is the dark background and "black" the light text, and the grays
  * run the other way. data-theme is set on <html> by PreferencesProvider.
  */
+/* The background of a clickable row under the mouse (bg-row-hover). Light
+   mode needs its own: Tailwind's light grays are too close to white to see
+   there, while the darker and paper themes' grays stand out on their own. */
+@theme {
+  --color-row-hover: oklch(90% 0.006 260);
+}
+
 html[data-theme="dark"] {
   color-scheme: dark;
+  --color-row-hover: color-mix(in oklab, var(--color-gray-200) 70%, transparent);
   --color-white: oklch(17% 0.01 260);
   --color-black: oklch(95% 0.005 260);
   --color-gray-50: oklch(21% 0.012 260);
@@ -25,6 +33,7 @@ html[data-theme="dark"] {
 }
 
 html[data-theme="paper"] {
+  --color-row-hover: color-mix(in oklab, var(--color-gray-200) 70%, transparent);
   --color-white: #f5ecd9;
   --color-black: #3a2e22;
   --color-gray-50: #efe5cf;

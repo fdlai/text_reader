@@ -7,12 +7,15 @@ import ListeningStatus from "../components/ListeningStatus";
 import NameDialog from "../components/NameDialog";
 import Pagination from "../components/Pagination";
 import SearchBox from "../components/SearchBox";
+import SortSelect from "../components/SortSelect";
 import { usePlayer } from "../context/PlayerContext";
 import { collectionPath } from "../paths";
 import { useListParams } from "../useListParams";
 
 // Fills whole rows of the grid, which has 2 or 3 columns.
 const PAGE_SIZE = 24;
+// The first is the default.
+const SORTS = { listened: "Recently listened", name: "Name" };
 
 // The Library's front page: what's being listened to, then the collections.
 // Articles are added inside a collection.
@@ -30,7 +33,8 @@ export default function Home() {
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
   const { saveNow } = usePlayer();
-  const { page, q, setPage, setQuery } = useListParams();
+  const { page, q, setPage, setQuery, option, setOption } = useListParams();
+  const sort = option("sort", Object.keys(SORTS));
   const pageCount = Math.ceil(total / PAGE_SIZE);
 
   // The position of whatever is playing is saved first, so it's at the top
@@ -46,7 +50,7 @@ export default function Home() {
     // An older request finishing late is ignored, so a quick change of page
     // or search can't show the wrong results.
     let current = true;
-    listCollections({ page, pageSize: PAGE_SIZE, q })
+    listCollections({ page, pageSize: PAGE_SIZE, q, sort })
       .then(({ items, total }) => {
         if (!current) return;
         // Past the last page (e.g. an old link): go to the last one.
@@ -63,7 +67,7 @@ export default function Home() {
     return () => {
       current = false;
     };
-  }, [page, q, setPage]);
+  }, [page, q, sort, setPage]);
 
   function changePage(n) {
     setPage(n);
@@ -99,9 +103,12 @@ export default function Home() {
           <ul className="mt-2 divide-y divide-gray-200">
             {recent.map((doc) => (
               <li key={doc.id}>
+                {/* The whole row opens it; a background on hover shows how
+                    far the row reaches. Shifted left by its padding, so
+                    the cover still lines up with the heading. */}
                 <Link
                   to={`/documents/${doc.id}`}
-                  className="flex items-center gap-4 py-3"
+                  className="-mx-3 flex items-center gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-row-hover"
                 >
                   <Cover doc={doc} />
                   <div className="min-w-0 flex-1">
@@ -120,8 +127,15 @@ export default function Home() {
       )}
 
       {searchable && (
-        <div className="mt-8 flex items-center justify-between gap-4">
-          <h2 className="text-sm font-medium text-gray-500">Collections</h2>
+        <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <h2 className="mr-auto text-sm font-medium text-gray-500">
+            Collections
+          </h2>
+          <SortSelect
+            value={sort}
+            options={SORTS}
+            onChange={(value) => setOption("sort", value, "listened")}
+          />
           <SearchBox
             value={q}
             onSearch={setQuery}
