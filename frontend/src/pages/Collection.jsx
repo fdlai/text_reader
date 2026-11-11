@@ -14,6 +14,7 @@ import {
 import Cover from "../components/Cover";
 import DeleteCollectionDialog from "../components/DeleteCollectionDialog";
 import ListeningStatus from "../components/ListeningStatus";
+import MoreMenu from "../components/MoreMenu";
 import MoveDialog from "../components/MoveDialog";
 import NameDialog from "../components/NameDialog";
 import Pagination from "../components/Pagination";
@@ -55,6 +56,9 @@ export default function Collection() {
   // This page of articles, and how many there are on every page.
   const [documents, setDocuments] = useState([]);
   const [total, setTotal] = useState(0);
+  // How many match the search with each progress, for the tabs: { all:
+  // 56, "not-started": 16, ... }. null until loaded.
+  const [counts, setCounts] = useState(null);
   // Whether to show the search box: once there's anything to search, and
   // from then on. Hiding it while a search with no results is cleared would
   // take away the focus mid-typing.
@@ -103,7 +107,7 @@ export default function Collection() {
         }),
       ),
     ])
-      .then(([collection, { items, total }]) => {
+      .then(([collection, { items, total, counts }]) => {
         if (!current) return;
         // Past the last page (e.g. after deleting the only article on it):
         // go to the last one.
@@ -117,6 +121,7 @@ export default function Collection() {
         }
         setDocuments(items);
         setTotal(total);
+        setCounts(counts);
         if (total > 0 || filtered) setSearchable(true);
       })
       .catch((e) => current && setError(e.message))
@@ -255,24 +260,25 @@ export default function Collection() {
       <Link to="/" className="text-sm text-gray-500 hover:underline">
         ← Library
       </Link>
-      <div className="mt-1 flex items-baseline justify-between gap-4">
+      <div className="mt-1 flex items-start justify-between gap-4">
         <h1 className="min-w-0 text-3xl font-semibold break-words">{name}</h1>
-        {/* Unsorted isn't a real collection, so it can't be changed. */}
+        {/* Unsorted isn't a real collection, so it can't be changed.
+            Renaming and deleting are rare, so they're kept in a menu. */}
         {collectionId !== null && name && (
-          <div className="flex shrink-0 gap-4 text-sm text-gray-500">
-            <button
-              onClick={() => setDialog("rename")}
-              className="hover:text-black"
-            >
-              Rename
-            </button>
-            <button
-              onClick={() => setDialog("delete")}
-              className="hover:text-red-600"
-            >
-              Delete
-            </button>
-          </div>
+          <MoreMenu
+            items={[
+              {
+                label: "Rename collection",
+                onClick: () => setDialog("rename"),
+              },
+              {
+                label: "Delete collection",
+                onClick: () => setDialog("delete"),
+                danger: true,
+              },
+            ]}
+            buttonClass="size-9 shrink-0 rounded-full text-gray-500 hover:bg-black/5 hover:text-black"
+          />
         )}
       </div>
 
@@ -281,22 +287,39 @@ export default function Collection() {
           Articles that aren't in any collection.
         </p>
       ) : (
-        <form onSubmit={handleAdd} className="mt-6 flex gap-2">
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste a webpage URL"
-            className="flex-1 rounded border border-gray-300 px-3 py-2"
-            required
-          />
-          <button
-            type="submit"
-            disabled={adding}
-            className="rounded bg-black px-4 py-2 text-white disabled:opacity-50"
+        // A box of its own, so adding isn't mistaken for searching.
+        <form
+          onSubmit={handleAdd}
+          className="mt-6 rounded-xl border border-gray-200 bg-gray-50 p-4"
+        >
+          <label
+            htmlFor="add-url"
+            className="text-sm font-semibold text-gray-600"
           >
-            {adding ? "Adding..." : "Add"}
-          </button>
+            Add an article
+          </label>
+          <div className="mt-2 flex gap-2">
+            <input
+              id="add-url"
+              type="url"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://…"
+              className="min-w-0 flex-1 rounded border border-gray-300 bg-white px-3 py-2"
+              required
+            />
+            <button
+              type="submit"
+              disabled={adding}
+              className="rounded bg-black px-4 py-2 text-white disabled:opacity-50"
+            >
+              {adding ? "Adding..." : "Add"}
+            </button>
+          </div>
+          <p className="mt-1.5 text-sm text-gray-500">
+            Paste the address of a web page, such as a chapter or a blog post.
+            Its text is pulled out for you to listen to.
+          </p>
         </form>
       )}
 
@@ -313,101 +336,133 @@ export default function Collection() {
 
       {searchable && (
         <>
-          <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
-            <SearchBox
-              value={q}
-              onSearch={setQuery}
-              placeholder="Search articles"
-            />
-            <span className="mr-auto text-sm text-gray-500 tabular-nums">
-              {filtered
-                ? `${total} found`
-                : `${total} ${total === 1 ? "article" : "articles"}`}
-            </span>
-            <SortSelect
-              value={sort}
-              options={SORTS}
-              onChange={(value) => setOption("sort", value, "newest")}
-            />
-          </div>
+          {/* Tabs over the list, each with how many it has (within the
+              search), e.g. how many chapters are left to start. */}
           <div
             role="group"
             aria-label="Show"
-            className="mt-3 flex flex-wrap gap-1.5 text-sm"
+            className="mt-8 flex flex-wrap gap-x-6 border-b border-gray-200"
           >
             {Object.entries(PROGRESS).map(([value, label]) => (
               <button
                 key={value}
                 onClick={() => setOption("progress", value, "all")}
                 aria-pressed={progress === value}
-                className={`rounded-full border px-3 py-1 ${
+                className={`-mb-px border-b-2 py-2.5 ${
                   progress === value
-                    ? "border-black bg-black text-white"
-                    : "border-gray-300 text-gray-600 hover:border-gray-400 hover:text-black"
+                    ? "border-black text-black"
+                    : "border-transparent text-gray-500 hover:text-black"
                 }`}
               >
                 {label}
+                {counts && (
+                  <span className="ml-1.5 text-xs text-gray-500 tabular-nums">
+                    {counts[value]}
+                  </span>
+                )}
               </button>
             ))}
           </div>
+          {/* In Select mode this row turns into the selection's actions,
+              at the same height, so the list doesn't move. Ticks are kept
+              when changing page. */}
+          <div className="mt-3 flex min-h-9 flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            {selected === null ? (
+              <>
+                <SearchBox
+                  value={q}
+                  onSearch={setQuery}
+                  placeholder="Search articles"
+                />
+                <div className="ml-auto flex items-center gap-4">
+                  <SortSelect
+                    value={sort}
+                    options={SORTS}
+                    onChange={(value) => setOption("sort", value, "newest")}
+                  />
+                  {documents.length > 0 && (
+                    <button
+                      onClick={() => setSelected([])}
+                      className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-black"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="size-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <rect x="4" y="4" width="16" height="16" rx="3" />
+                        <path d="m9 12 2 2 4-4" />
+                      </svg>
+                      Select
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <span className="text-gray-600 tabular-nums">
+                  {selected.length} selected
+                </span>
+                <button
+                  onClick={() =>
+                    setSelected(
+                      pageSelected
+                        ? selected.filter((i) => !pageIds.includes(i))
+                        : [...new Set([...selected, ...pageIds])],
+                    )
+                  }
+                  className="rounded border border-gray-300 px-3 py-1.5 text-gray-700 hover:border-gray-500 hover:text-black"
+                >
+                  {pageSelected ? "Select none" : "Select all"}
+                  {pageCount > 1 && " on this page"}
+                </button>
+                <div className="ml-auto flex items-center gap-4">
+                  {/* Plain white text on hover: the theme's "white" is dark
+                      in dark mode. */}
+                  <button
+                    disabled={selected.length === 0}
+                    onClick={handleDeleteSelected}
+                    className="rounded border border-red-600 px-3 py-1.5 text-red-600 hover:bg-red-600 hover:text-[#fff] disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-red-600"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    disabled={selected.length === 0}
+                    onClick={() => setMoving(selected)}
+                    className="rounded bg-black px-3 py-1.5 text-white disabled:opacity-50"
+                  >
+                    Move to…
+                  </button>
+                  {/* Where Select was, so clicking the same spot again
+                      leaves Select mode. */}
+                  <button
+                    onClick={() => setSelected(null)}
+                    title="Cancel (Esc)"
+                    className="flex items-center gap-1.5 text-gray-500 hover:text-black"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="size-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M6 6l12 12M18 6 6 18" />
+                    </svg>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </>
-      )}
-
-      {/* Select mode: tick several articles to move them together. Ticks
-          are kept when changing page. */}
-      {documents.length > 0 && (
-        <div className="mt-2 flex min-h-9 flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
-          {selected === null ? (
-            <button
-              onClick={() => setSelected([])}
-              className="text-gray-500 hover:text-black"
-            >
-              Select
-            </button>
-          ) : (
-            <>
-              <span className="mr-auto text-gray-600">
-                {selected.length} selected
-              </span>
-              <button
-                onClick={() =>
-                  setSelected(
-                    pageSelected
-                      ? selected.filter((i) => !pageIds.includes(i))
-                      : [...new Set([...selected, ...pageIds])],
-                  )
-                }
-                className="text-gray-500 hover:text-black"
-              >
-                {pageSelected ? "Select none" : "Select all"}
-                {pageCount > 1 && " on this page"}
-              </button>
-              <button
-                onClick={() => setSelected(null)}
-                title="Cancel (Esc)"
-                className="text-gray-500 hover:text-black"
-              >
-                Cancel
-              </button>
-              {/* Plain white text on hover: the theme's "white" is dark in
-                  dark mode. */}
-              <button
-                disabled={selected.length === 0}
-                onClick={handleDeleteSelected}
-                className="rounded border border-red-600 px-3 py-1.5 text-red-600 hover:bg-red-600 hover:text-[#fff] disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-red-600"
-              >
-                Delete
-              </button>
-              <button
-                disabled={selected.length === 0}
-                onClick={() => setMoving(selected)}
-                className="rounded bg-black px-3 py-1.5 text-white disabled:opacity-50"
-              >
-                Move to…
-              </button>
-            </>
-          )}
-        </div>
       )}
 
       <ul className="mt-2 divide-y divide-gray-200">
@@ -450,15 +505,17 @@ export default function Collection() {
               className="flex items-center justify-between gap-4"
             >
               {selected !== null ? (
-                // In Select mode a click anywhere on the row ticks it.
-                <label className="-ml-3 flex min-w-0 flex-1 cursor-pointer items-center gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-row-hover">
+                // In Select mode a click anywhere on the row ticks it. The
+                // box is on the right, where Move and Delete were, so the
+                // cover and title stay where they are.
+                <label className="-mx-3 flex min-w-0 flex-1 cursor-pointer items-center gap-4 rounded-lg px-3 py-3 transition-colors hover:bg-row-hover">
+                  {details}
                   <input
                     type="checkbox"
                     checked={selected.includes(doc.id)}
                     onChange={() => toggleSelected(doc.id)}
-                    className="size-4 shrink-0"
+                    className="size-5 shrink-0"
                   />
-                  {details}
                 </label>
               ) : (
                 <>

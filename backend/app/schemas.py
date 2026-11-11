@@ -111,10 +111,13 @@ class LibraryItem(DocumentSummary):
     seconds_left: float  # an estimate at normal speed
 
 
-# One page of a collection's documents; total counts every page.
+# One page of a collection's documents; total counts every page. counts:
+# how many there are with each progress ("all", "not-started", ...), for the
+# filter tabs.
 class LibraryPage(BaseModel):
     items: list[LibraryItem]
     total: int
+    counts: dict[str, int]
 
 
 class DocumentDetail(DocumentSummary):

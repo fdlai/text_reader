@@ -162,7 +162,12 @@ async def list_documents(
     sort: newest or oldest added first, or most recently listened to first
     (then those never played, newest first).
     progress: only those not started, started but not finished, or finished.
+    counts: how many match q with each progress, whichever one is chosen.
     """
+    not_started = PlaybackProgress.document_id.is_(None)
+    in_progress = PlaybackProgress.finished.is_(False)
+    finished = PlaybackProgress.finished.is_(True)
+
     # Every document, with its listening progress if it has any.
     query = select(Document).outerjoin(PlaybackProgress)
     if collection_id is not None:
@@ -171,13 +176,28 @@ async def list_documents(
         query = query.where(Document.collection_id.is_(None))
     if q.strip():
         query = query.where(Document.title.icontains(q.strip(), autoescape=True))
+
+    # Counted in one go, before leaving out any progress, so each filter can
+    # show its number.
+    row = (
+        await session.execute(
+            query.with_only_columns(
+                func.count(),
+                func.count().filter(not_started),
+                func.count().filter(in_progress),
+                func.count().filter(finished),
+            )
+        )
+    ).one()
+    counts = dict(zip(["all", "not-started", "in-progress", "finished"], row))
+    total = counts[progress]
+
     if progress == "not-started":
-        query = query.where(PlaybackProgress.document_id.is_(None))
+        query = query.where(not_started)
     elif progress == "in-progress":
-        query = query.where(PlaybackProgress.finished.is_(False))
+        query = query.where(in_progress)
     elif progress == "finished":
-        query = query.where(PlaybackProgress.finished.is_(True))
-    total = await session.scalar(select(func.count()).select_from(query.subquery()))
+        query = query.where(finished)
 
     # The id last decides between documents added (or listened to) at the
     # same moment, so the order, and so each page, is always the same.
@@ -198,7 +218,9 @@ async def list_documents(
             .options(selectinload(Document.progress))
         )
     ).all()
-    return LibraryPage(items=await _library_items(session, documents), total=total)
+    return LibraryPage(
+        items=await _library_items(session, documents), total=total, counts=counts
+    )
 
 
 @router.get("/recent", response_model=list[LibraryItem])
