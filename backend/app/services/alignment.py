@@ -48,6 +48,13 @@ RETRY_RUN = 4
 # How many heard words on each side of such a run are listened to again too.
 # Whisper's times right next to the skipped words are often wrong as well.
 RETRY_CONTEXT = 2
+# Signs that Whisper skipped some speech (see _anchors), in seconds: a word
+# longer than MAX_WORD, then words crammed in within CRAMMED after its end,
+# or any word shorter than MIN_WORD. It once stretched "feeling" over 8
+# seconds, then gave "of injustice" 0.02s each at the end of the audio.
+MAX_WORD = 2.0
+CRAMMED = 1.0
+MIN_WORD = 0.05
 SAMPLE_RATE = 16000  # what Whisper listens at
 # How alike (0 to 1) a heard word's spelling must be to the written word to
 # count as it, e.g. "Beek" for "Baek" (0.75) or "Mihyung" for "Myung"
@@ -130,17 +137,9 @@ def word_start_times(
     # fine when that stretch is played to it alone. So each run of unheard
     # words is listened to again, with a little before and after.
     for first, last in _unheard_runs(starts):
-        # The clip is cut around heard words with some length. When Whisper
-        # skips a stretch, it can report a few of the skipped words with no
-        # length (start = end) where it picks up again, seconds after they
-        # were spoken. A clip starting from those would miss the skipped
-        # speech. (Their times are otherwise kept: after a pause, a word
-        # with no length often does start when Whisper says.)
-        def anchor(i):
-            return starts[i] is not None and ends[i] > starts[i]
-
-        timed_before = [i for i in range(first) if anchor(i)]
-        timed_after = [i for i in range(last, len(words)) if anchor(i)]
+        anchors = _anchors(starts, ends)
+        timed_before = [i for i in range(first) if anchors[i]]
+        timed_after = [i for i in range(last, len(words)) if anchors[i]]
         first = timed_before[-RETRY_CONTEXT] if len(timed_before) >= RETRY_CONTEXT else 0
         last = (
             timed_after[RETRY_CONTEXT] if len(timed_after) > RETRY_CONTEXT else len(words)
@@ -188,6 +187,28 @@ def _fill_paragraphs(
         result += [max(t, result[-1] if result else 0.0) for t in _fill_gaps(words, p_starts, p_ends, end)]
         first = last
     return result
+
+
+def _anchors(starts: list[float | None], ends: list[float | None]) -> list[bool]:
+    """Which heard words a clip to listen to again may be cut around.
+
+    When Whisper skips a stretch of speech, it usually stretches the word
+    before over it, then crams a few of the skipped words in where it picks
+    up again, seconds after they were spoken, often with almost no length.
+    A clip starting from those would miss the skipped speech, so they aren't
+    used. (The stretched word is: it does start when Whisper says. And their
+    times are otherwise kept: after a pause, a word with no length often
+    does start when Whisper says.)"""
+    anchors = []
+    crammed_until = -1.0
+    for start, end in zip(starts, ends):
+        if start is None:
+            anchors.append(False)
+            continue
+        anchors.append(end - start >= MIN_WORD and start > crammed_until)
+        if end - start > MAX_WORD:
+            crammed_until = end + CRAMMED
+    return anchors
 
 
 def _unheard_runs(starts: list[float | None]) -> list[tuple[int, int]]:
