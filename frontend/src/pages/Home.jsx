@@ -5,31 +5,70 @@ import CollectionCard from "../components/CollectionCard";
 import Cover from "../components/Cover";
 import ListeningStatus from "../components/ListeningStatus";
 import NameDialog from "../components/NameDialog";
+import Pagination from "../components/Pagination";
+import SearchBox from "../components/SearchBox";
 import { usePlayer } from "../context/PlayerContext";
 import { collectionPath } from "../paths";
+import { useListParams } from "../useListParams";
+
+// Fills whole rows of the grid, which has 2 or 3 columns.
+const PAGE_SIZE = 24;
 
 // The Library's front page: what's being listened to, then the collections.
 // Articles are added inside a collection.
 export default function Home() {
+  // This page of collections, and how many there are on every page.
   const [collections, setCollections] = useState([]);
+  const [total, setTotal] = useState(0);
+  // Whether to show the search box: once there's anything to search, and
+  // from then on. Hiding it while a search with no results is cleared would
+  // take away the focus mid-typing.
+  const [searchable, setSearchable] = useState(false);
   const [recent, setRecent] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
   const { saveNow } = usePlayer();
+  const { page, q, setPage, setQuery } = useListParams();
+  const pageCount = Math.ceil(total / PAGE_SIZE);
 
   // The position of whatever is playing is saved first, so it's at the top
   // of Continue listening with its progress up to date.
   useEffect(() => {
-    Promise.all([listCollections(), saveNow().then(listRecentDocuments)])
-      .then(([collections, recent]) => {
-        setCollections(collections);
-        setRecent(recent);
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    saveNow()
+      .then(listRecentDocuments)
+      .then(setRecent)
+      .catch((e) => setError(e.message));
   }, [saveNow]);
+
+  useEffect(() => {
+    // An older request finishing late is ignored, so a quick change of page
+    // or search can't show the wrong results.
+    let current = true;
+    listCollections({ page, pageSize: PAGE_SIZE, q })
+      .then(({ items, total }) => {
+        if (!current) return;
+        // Past the last page (e.g. an old link): go to the last one.
+        if (items.length === 0 && total > 0) {
+          setPage(Math.ceil(total / PAGE_SIZE), true);
+          return;
+        }
+        setCollections(items);
+        setTotal(total);
+        if (total > 0 || q) setSearchable(true);
+      })
+      .catch((e) => current && setError(e.message))
+      .finally(() => current && setLoading(false));
+    return () => {
+      current = false;
+    };
+  }, [page, q, setPage]);
+
+  function changePage(n) {
+    setPage(n);
+    window.scrollTo(0, 0);
+  }
 
   // Opens the new collection straight away, ready to add articles to it.
   async function handleCreate(name) {
@@ -77,39 +116,52 @@ export default function Home() {
               </li>
             ))}
           </ul>
-          <h2 className="mt-8 text-sm font-medium text-gray-500">
-            Collections
-          </h2>
         </>
       )}
 
+      {searchable && (
+        <div className="mt-8 flex items-center justify-between gap-4">
+          <h2 className="text-sm font-medium text-gray-500">Collections</h2>
+          <SearchBox
+            value={q}
+            onSearch={setQuery}
+            placeholder="Search collections"
+          />
+        </div>
+      )}
+
       {loading && <p className="mt-6 text-gray-500">Loading...</p>}
-      <ul
-        className={`${recent.length > 0 ? "mt-3" : "mt-6"} grid grid-cols-2 gap-4 sm:grid-cols-3`}
-      >
+      {!loading && q && total === 0 && (
+        <p className="mt-6 text-gray-500">No collections match “{q}”.</p>
+      )}
+      <ul className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3">
         {/* Until there's a collection of their own (Unsorted doesn't count),
             a card in the grid shows where to start. */}
-        {!loading && !error && collections.every((c) => c.id === null) && (
-          <li className="flex">
-            <button
-              onClick={() => setCreating(true)}
-              className="flex min-h-72 flex-1 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-gray-300 p-6 text-center text-gray-500 transition hover:border-gray-400 hover:text-black"
-            >
-              <span className="text-4xl leading-none">+</span>
-              <span className="font-medium text-black">New collection</span>
-              <span className="text-sm">
-                Articles live in collections, such as one per novel. Make one,
-                then open it to add articles by their web address.
-              </span>
-            </button>
-          </li>
-        )}
+        {!loading &&
+          !error &&
+          !q &&
+          collections.every((c) => c.id === null) && (
+            <li className="flex">
+              <button
+                onClick={() => setCreating(true)}
+                className="flex min-h-72 flex-1 flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-gray-300 p-6 text-center text-gray-500 transition hover:border-gray-400 hover:text-black"
+              >
+                <span className="text-4xl leading-none">+</span>
+                <span className="font-medium text-black">New collection</span>
+                <span className="text-sm">
+                  Articles live in collections, such as one per novel. Make one,
+                  then open it to add articles by their web address.
+                </span>
+              </button>
+            </li>
+          )}
         {collections.map((c) => (
           <li key={c.id ?? "unsorted"} className="flex">
             <CollectionCard collection={c} />
           </li>
         ))}
       </ul>
+      <Pagination page={page} pageCount={pageCount} onChange={changePage} />
 
       {creating && (
         <NameDialog

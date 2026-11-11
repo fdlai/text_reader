@@ -29,6 +29,12 @@ class CollectionOut(BaseModel):
     name: str
 
 
+# A collection's page: also how many documents it has in all, which its
+# (paged) list doesn't show.
+class CollectionDetail(CollectionOut):
+    document_count: int
+
+
 # Enough of a document to show its cover (or a placeholder for it).
 class CoverItem(BaseModel):
     id: int
@@ -45,6 +51,16 @@ class CollectionSummary(BaseModel):
     in_progress_count: int
     # Its newest documents, newest first, drawn as a stack of books.
     stack: list[CoverItem]
+
+
+# The most items one page of a list can ask for.
+MAX_PAGE_SIZE = 100
+
+
+# One page of the home page's collections; total counts every page.
+class CollectionPage(BaseModel):
+    items: list[CollectionSummary]
+    total: int
 
 
 class DocumentIds(BaseModel):
@@ -93,6 +109,12 @@ class LibraryItem(DocumentSummary):
     finished: bool
     fraction: float  # 0 to 1, how much has been listened to
     seconds_left: float  # an estimate at normal speed
+
+
+# One page of a collection's documents; total counts every page.
+class LibraryPage(BaseModel):
+    items: list[LibraryItem]
+    total: int
 
 
 class DocumentDetail(DocumentSummary):

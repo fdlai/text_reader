@@ -11,12 +11,14 @@ from sqlalchemy.orm import selectinload
 from app.database import get_session
 from app.models import AudioFile, Chunk, Collection, Document, PlaybackProgress, VoicePreset
 from app.schemas import (
+    MAX_PAGE_SIZE,
     DocumentCreate,
     DocumentDetail,
     DocumentIds,
     DocumentsMove,
     DocumentVoice,
     LibraryItem,
+    LibraryPage,
     Progress,
 )
 from app.services.chunker import chunk_text
@@ -141,24 +143,37 @@ async def delete_many_documents(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("", response_model=list[LibraryItem])
+@router.get("", response_model=LibraryPage)
 async def list_documents(
     collection_id: int | None = None,
     unsorted: bool = False,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=MAX_PAGE_SIZE),
+    q: str = "",
     session: AsyncSession = Depends(get_session),
 ):
-    """The documents in one collection, or with unsorted=true those in none.
-    With neither, every document."""
-    query = (
-        select(Document)
-        .order_by(Document.created_at.desc())
-        .options(selectinload(Document.progress))
-    )
+    """One page of the documents in one collection, newest first, or with
+    unsorted=true those in none. With neither, every document. With q, only
+    those whose title contains it (ignoring capitals)."""
+    query = select(Document)
     if collection_id is not None:
         query = query.where(Document.collection_id == collection_id)
     elif unsorted:
         query = query.where(Document.collection_id.is_(None))
-    return await _library_items(session, (await session.scalars(query)).all())
+    if q.strip():
+        query = query.where(Document.title.icontains(q.strip(), autoescape=True))
+    total = await session.scalar(select(func.count()).select_from(query.subquery()))
+    documents = (
+        await session.scalars(
+            # The id decides between documents added at the same moment, so
+            # the order (and so each page) is always the same.
+            query.order_by(Document.created_at.desc(), Document.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .options(selectinload(Document.progress))
+        )
+    ).all()
+    return LibraryPage(items=await _library_items(session, documents), total=total)
 
 
 @router.get("/recent", response_model=list[LibraryItem])

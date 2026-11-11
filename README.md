@@ -180,6 +180,95 @@ fast.
 - **Some sites don't work:** pages that build their text with JavaScript
   after loading, or that block automated requests, can't be extracted yet.
 
+## How this would scale
+
+The app is built for one person on one computer. Here is what limits it, and
+how a hosted version for many users would be built.
+
+### What limits it: generating audio, not web requests
+
+Serving pages and audio files is cheap. Generating speech is not:
+
+| Step | Runs on | Time per second of audio |
+|---|---|---|
+| Qwen3-TTS (Q8 model) | GPU (RTX 3050 Ti, 4 GB) | about 0.75 s |
+| Kokoro | CPU | about 0.33 s |
+| Word timings (faster-whisper) | CPU | about 0.1 s |
+
+So one small GPU keeps only about **one and a third listeners** ahead of
+playback with Qwen. With many users, the question is how to share
+generation hardware, not how to handle web traffic.
+
+### Today
+
+- One FastAPI process does everything: it serves the API, runs Kokoro and
+  Whisper, and starts and stops the Qwen container.
+- One worker generates **one section at a time** from a single queue.
+  Running jobs side by side would only split the GPU, so each would play
+  slower than it generates. What you're listening to jumps to the front.
+- The queue lives in memory. A restart loses it, though each article picks
+  up from its first missing section when generated again.
+- Audio files are saved on the local disk.
+
+### A hosted version
+
+```mermaid
+flowchart LR
+    B[Browsers] --> API[API servers<br/>any number, no state]
+    API --> DB[(Postgres<br/>articles, progress,<br/>job queue)]
+    API --> S3[(Object storage<br/>audio files, via CDN)]
+    DB --> GW[GPU workers<br/>Qwen]
+    DB --> CW[CPU workers<br/>Kokoro, Whisper]
+    GW --> S3
+    CW --> S3
+```
+
+- **API servers only queue jobs.** Pressing "Generate" adds a row to a jobs
+  table and returns. API servers keep nothing in memory, so any number can
+  run behind a load balancer.
+- **Workers are separate programs** on separate machines: GPU machines for
+  Qwen, CPU machines for Kokoro and Whisper. Each one repeatedly claims the
+  next job, generates one section and saves it. Postgres's
+  `SELECT … FOR UPDATE SKIP LOCKED` lets many workers claim jobs from one
+  table without two taking the same job, with no extra queue service.
+- **The number of workers follows the queue.** Add GPU machines when the
+  queue grows and remove them when it's empty. GPUs cost money even when
+  idle, so scaling down matters as much as scaling up.
+- **Each user has their own order, and users take turns.** Each user still
+  sees their own queue, with what they're listening to first. A scheduler
+  takes one section from each user in turn and caps how many jobs a user can
+  have running, so one person queuing 40 chapters can't hold everyone else
+  up. A section is small (seconds to a minute of audio), so taking turns
+  per section stays fair.
+- **Audio is generated once and shared.** Each saved file already records
+  everything it was made from (engine model, pronunciation fixes, paragraph
+  pause). Add a hash of the text, and the same chapter with the same voice
+  and settings is generated once for everyone who listens to it. Popular
+  web-novel chapters would mostly come from this cache.
+- **Files go to object storage** (like S3), served through a CDN, so any
+  worker can save audio and any server can hand it out.
+- **OpenAI needs no workers.** It runs on OpenAI's servers, so requests can
+  run in parallel. The limits there are cost and OpenAI's rate limits, so it
+  would need a spending cap per user.
+
+### The cost trade-off
+
+At low volume, a paid API (about 1.5 cents per minute of audio) is cheaper
+than renting GPUs that sit idle between requests. Above some steady volume,
+your own workers cost less per minute. A hosted version would likely start
+with the API and add GPU workers as usage grows.
+
+### The first changes in this codebase
+
+1. Move the queue from memory into a Postgres table, so it survives
+   restarts. Pause, cancel and "move to front" become updates to that table.
+2. Run the worker as its own process, claiming jobs with `SKIP LOCKED`.
+3. Save audio through a small storage interface, local disk now and object
+   storage later.
+4. Give articles, collections, voices and preferences an owner, for user
+   accounts. Preferences are already one row, ready to become one row per
+   user.
+
 ## Project layout
 
 ```

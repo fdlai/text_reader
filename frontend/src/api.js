@@ -26,8 +26,18 @@ const json = (method, body) => ({
   body: JSON.stringify(body),
 });
 
-// Includes Unsorted (id null) last, if anything is in it.
-export const listCollections = () => request("/collections");
+// The address for one page of a list: page numbers start at 1, and q keeps
+// only items whose name or title contains it.
+function pagePath(path, { page = 1, pageSize, q = "" }, extra = {}) {
+  const params = new URLSearchParams({ ...extra, page, page_size: pageSize });
+  if (q) params.set("q", q);
+  return `${path}?${params}`;
+}
+
+// One page of collections, as { items, total }. Unsorted (id null) counts
+// as one more collection after the others, if anything is in it.
+export const listCollections = ({ page, pageSize, q }) =>
+  request(pagePath("/collections", { page, pageSize, q }));
 
 export const getCollection = (id) => request(`/collections/${id}`);
 
@@ -43,12 +53,17 @@ export const deleteCollection = (id, deleteDocuments) =>
     method: "DELETE",
   });
 
-// The documents in a collection; collectionId null means Unsorted.
-export const listDocuments = (collectionId) =>
+// One page of a collection's documents, newest first, as { items, total };
+// collectionId null means Unsorted.
+export const listDocuments = (collectionId, { page, pageSize, q }) =>
   request(
-    collectionId === null
-      ? "/documents?unsorted=true"
-      : `/documents?collection_id=${collectionId}`,
+    pagePath(
+      "/documents",
+      { page, pageSize, q },
+      collectionId === null
+        ? { unsorted: true }
+        : { collection_id: collectionId },
+    ),
   );
 
 // The unfinished articles listened to most recently, from any collection.

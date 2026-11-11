@@ -1,14 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { createCollection, listCollections } from "../api";
+import SearchBox from "./SearchBox";
+
+// How many collections are listed at once. With more, a search box finds
+// the others.
+const LIMIT = 50;
 
 // Asks which collection to move articles to, or makes a new one for them.
 // onMove(collection), with the collection's id and name, is awaited; if it throws, its message is shown and
 // the popup stays open. Styled like the confirmation popup (see
 // ConfirmProvider).
 export default function MoveDialog({ count, currentId, onMove, onClose }) {
-  // Every collection but the one they're in. Unsorted isn't offered: it's
-  // where articles end up, not somewhere to put them.
+  // The collections listed: all but the one they're in. Unsorted isn't
+  // offered: it's where articles end up, not somewhere to put them.
   const [collections, setCollections] = useState(null);
+  const [q, setQ] = useState("");
+  // Whether there are too many to list, so the search box is shown.
+  const [tooMany, setTooMany] = useState(false);
   const [newName, setNewName] = useState("");
   const [moving, setMoving] = useState(false);
   const [error, setError] = useState("");
@@ -16,12 +24,23 @@ export default function MoveDialog({ count, currentId, onMove, onClose }) {
 
   useEffect(() => {
     dialogRef.current.showModal();
-    listCollections()
-      .then((all) =>
-        setCollections(all.filter((c) => c.id !== null && c.id !== currentId)),
-      )
-      .catch((e) => setError(e.message));
-  }, [currentId]);
+  }, []);
+
+  useEffect(() => {
+    let current = true;
+    listCollections({ pageSize: LIMIT, q })
+      .then(({ items, total }) => {
+        if (!current) return;
+        setCollections(
+          items.filter((c) => c.id !== null && c.id !== currentId),
+        );
+        if (total > LIMIT) setTooMany(true);
+      })
+      .catch((e) => current && setError(e.message));
+    return () => {
+      current = false;
+    };
+  }, [q, currentId]);
 
   async function move(getCollection) {
     setMoving(true);
@@ -54,6 +73,15 @@ export default function MoveDialog({ count, currentId, onMove, onClose }) {
           Move {count === 1 ? "article" : `${count} articles`} to…
         </h2>
 
+        {tooMany && (
+          <div className="mt-4">
+            <SearchBox
+              value={q}
+              onSearch={setQ}
+              placeholder="Find a collection"
+            />
+          </div>
+        )}
         {collections === null && !error && (
           <p className="mt-4 text-sm text-gray-500">Loading...</p>
         )}

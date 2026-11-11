@@ -6,6 +6,7 @@ import {
   deleteDocument,
   deleteDocuments,
   getCollection,
+  getDocument,
   listDocuments,
   moveDocuments,
   renameCollection,
@@ -15,16 +16,32 @@ import DeleteCollectionDialog from "../components/DeleteCollectionDialog";
 import ListeningStatus from "../components/ListeningStatus";
 import MoveDialog from "../components/MoveDialog";
 import NameDialog from "../components/NameDialog";
+import Pagination from "../components/Pagination";
+import SearchBox from "../components/SearchBox";
 import { useConfirm } from "../context/confirm";
 import { usePlayer } from "../context/PlayerContext";
+import { useListParams } from "../useListParams";
 
-// One collection's articles, where new ones are added. "unsorted" in the
-// address shows the articles in no collection, which can't be added to.
+const PAGE_SIZE = 50;
+
+// One collection's articles, newest first, where new ones are added.
+// "unsorted" in the address shows the articles in no collection, which
+// can't be added to.
 export default function Collection() {
   const { id } = useParams();
   const collectionId = id === "unsorted" ? null : Number(id);
   const [name, setName] = useState(collectionId === null ? "Unsorted" : "");
+  // How many articles the collection has in all, whatever the search.
+  const [documentCount, setDocumentCount] = useState(0);
+  // This page of articles, and how many there are on every page.
   const [documents, setDocuments] = useState([]);
+  const [total, setTotal] = useState(0);
+  // Whether to show the search box: once there's anything to search, and
+  // from then on. Hiding it while a search with no results is cleared would
+  // take away the focus mid-typing.
+  const [searchable, setSearchable] = useState(false);
+  // Changed to load the page again, e.g. after deleting from it.
+  const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [url, setUrl] = useState("");
@@ -41,21 +58,49 @@ export default function Collection() {
   const player = usePlayer();
   const confirm = useConfirm();
   const { saveNow } = player;
+  const { page, q, setPage, setQuery } = useListParams();
+  const pageCount = Math.ceil(total / PAGE_SIZE);
+  const reload = () => setReloadKey((k) => k + 1);
 
   // The position of whatever is playing is saved first, so its progress
   // here is up to date.
   useEffect(() => {
+    // An older request finishing late is ignored, so a quick change of page
+    // or search can't show the wrong results.
+    let current = true;
     Promise.all([
       collectionId === null ? null : getCollection(collectionId),
-      saveNow().then(() => listDocuments(collectionId)),
+      saveNow().then(() =>
+        listDocuments(collectionId, { page, pageSize: PAGE_SIZE, q }),
+      ),
     ])
-      .then(([collection, docs]) => {
-        if (collection) setName(collection.name);
-        setDocuments(docs);
+      .then(([collection, { items, total }]) => {
+        if (!current) return;
+        // Past the last page (e.g. after deleting the only article on it):
+        // go to the last one.
+        if (items.length === 0 && total > 0) {
+          setPage(Math.ceil(total / PAGE_SIZE), true);
+          return;
+        }
+        if (collection) {
+          setName(collection.name);
+          setDocumentCount(collection.document_count);
+        }
+        setDocuments(items);
+        setTotal(total);
+        if (total > 0 || q) setSearchable(true);
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [collectionId, saveNow]);
+      .catch((e) => current && setError(e.message))
+      .finally(() => current && setLoading(false));
+    return () => {
+      current = false;
+    };
+  }, [collectionId, page, q, reloadKey, saveNow, setPage]);
+
+  function changePage(n) {
+    setPage(n);
+    window.scrollTo(0, 0);
+  }
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -65,8 +110,10 @@ export default function Collection() {
     setExistingId(null);
     try {
       await createDocument(url.trim(), collectionId);
-      // Reloaded rather than added, since the list includes each one's length.
-      setDocuments(await listDocuments(collectionId));
+      // The newest is first, so it's on page 1, without a search. Reloaded
+      // rather than added, since the list includes each one's length.
+      if (page === 1 && !q) reload();
+      else setQuery("");
       setUrl("");
     } catch (err) {
       setError(err.message);
@@ -82,21 +129,25 @@ export default function Collection() {
   }
 
   async function handleDeleteCollection(deleteArticles) {
-    // As when deleting one article: stop it if it's about to disappear.
-    if (
-      deleteArticles &&
-      documents.some((d) => d.id === player.session?.documentId)
-    )
-      player.close(false);
+    // As when deleting one article: stop it if it's about to disappear. It
+    // may be on another page, so its collection is looked up.
+    if (deleteArticles && player.session) {
+      const playing = await getDocument(player.session.documentId).catch(
+        () => null,
+      );
+      if (playing?.collection_id === collectionId) player.close(false);
+    }
     await deleteCollection(collectionId, deleteArticles);
     navigate("/");
   }
 
   async function handleMove(target) {
     await moveDocuments(moving, target.id);
-    setDocuments((docs) => docs.filter((d) => !moving.includes(d.id)));
     setMoving(null);
     setSelected(null);
+    // Loaded again rather than removed here, so the next page's first
+    // articles move up into the gap.
+    reload();
   }
 
   async function handleDeleteSelected() {
@@ -113,12 +164,16 @@ export default function Collection() {
       // As when deleting one article: stop it if it's about to disappear.
       if (selected.includes(player.session?.documentId)) player.close(false);
       await deleteDocuments(selected);
-      setDocuments((docs) => docs.filter((d) => !selected.includes(d.id)));
       setSelected(null);
+      reload();
     } catch (err) {
       setError(err.message);
     }
   }
+
+  // Whether every article on this page is ticked.
+  const pageIds = documents.map((d) => d.id);
+  const pageSelected = pageIds.every((i) => selected?.includes(i));
 
   // Escape leaves Select mode, unless a popup is open (Escape closes that).
   const selecting = selected !== null;
@@ -149,7 +204,7 @@ export default function Collection() {
       // point saving the position of a deleted article.
       if (player.session?.documentId === doc.id) player.close(false);
       await deleteDocument(doc.id);
-      setDocuments((docs) => docs.filter((d) => d.id !== doc.id));
+      reload();
     } catch (err) {
       setError(err.message);
     }
@@ -216,9 +271,25 @@ export default function Collection() {
         </p>
       )}
 
-      {/* Select mode: tick several articles to move them together. */}
+      {searchable && (
+        <div className="mt-6 flex items-center gap-4">
+          <SearchBox
+            value={q}
+            onSearch={setQuery}
+            placeholder="Search articles"
+          />
+          <span className="text-sm text-gray-500 tabular-nums">
+            {q
+              ? `${total} found`
+              : `${total} ${total === 1 ? "article" : "articles"}`}
+          </span>
+        </div>
+      )}
+
+      {/* Select mode: tick several articles to move them together. Ticks
+          are kept when changing page. */}
       {documents.length > 0 && (
-        <div className="mt-6 flex min-h-9 flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
+        <div className="mt-4 flex min-h-9 flex-wrap items-center justify-end gap-x-4 gap-y-2 text-sm">
           {selected === null ? (
             <button
               onClick={() => setSelected([])}
@@ -234,16 +305,15 @@ export default function Collection() {
               <button
                 onClick={() =>
                   setSelected(
-                    selected.length === documents.length
-                      ? []
-                      : documents.map((d) => d.id),
+                    pageSelected
+                      ? selected.filter((i) => !pageIds.includes(i))
+                      : [...new Set([...selected, ...pageIds])],
                   )
                 }
                 className="text-gray-500 hover:text-black"
               >
-                {selected.length === documents.length
-                  ? "Select none"
-                  : "Select all"}
+                {pageSelected ? "Select none" : "Select all"}
+                {pageCount > 1 && " on this page"}
               </button>
               <button
                 onClick={() => setSelected(null)}
@@ -277,8 +347,15 @@ export default function Collection() {
         {loading && <li className="py-3 text-gray-500">Loading...</li>}
         {!loading && !error && documents.length === 0 && (
           <li className="py-3 text-gray-500">
-            No articles yet.
-            {collectionId !== null && " Paste a web address above to add one."}
+            {q ? (
+              `No articles match “${q}”.`
+            ) : (
+              <>
+                No articles yet.
+                {collectionId !== null &&
+                  " Paste a web address above to add one."}
+              </>
+            )}
           </li>
         )}
         {documents.map((doc) => {
@@ -342,6 +419,7 @@ export default function Collection() {
           );
         })}
       </ul>
+      <Pagination page={page} pageCount={pageCount} onChange={changePage} />
 
       {moving && (
         <MoveDialog
@@ -365,7 +443,7 @@ export default function Collection() {
       {dialog === "delete" && (
         <DeleteCollectionDialog
           name={name}
-          count={documents.length}
+          count={documentCount}
           onDelete={handleDeleteCollection}
           onClose={() => setDialog(null)}
         />
