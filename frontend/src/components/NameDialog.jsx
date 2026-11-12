@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useModal } from "../useModal";
 
 // A popup asking for a name, e.g. for a new collection. onSave(name) is
 // awaited; if it throws, its message is shown and the popup stays open.
@@ -16,9 +17,7 @@ export default function NameDialog({
   const [error, setError] = useState("");
   const dialogRef = useRef(null);
 
-  useEffect(() => {
-    dialogRef.current.showModal();
-  }, []);
+  useModal(dialogRef);
 
   async function handleSubmit(e) {
     e.preventDefault();

@@ -14,7 +14,7 @@ from app.models import CustomVoice, VoicePreset
 from app.schemas_audio import CustomVoiceIn, CustomVoiceOut, VoiceDesignIn
 from app.services import pause_preview, qwen
 from app.services.errors import TTSError
-from app.services.generation import delete_preset_audio
+from app.services.generation import delete_preset_audio, remove_files
 
 router = APIRouter(prefix="/api/custom-voices", tags=["custom voices"])
 
@@ -40,10 +40,10 @@ def _decode_sample(sample_b64: str) -> bytes:
         data = base64.b64decode(sample_b64, validate=True)
         info = sf.info(io.BytesIO(data))
     except (binascii.Error, sf.LibsndfileError, RuntimeError):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The sample isn't a valid audio file.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The sample isn't a valid audio file.")
     if info.format != "WAV" or not 1 <= info.duration <= 30:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "The sample must be a WAV file of 1 to 30 seconds."
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "The sample must be a WAV file of 1 to 30 seconds."
         )
     return data
 
@@ -99,11 +99,13 @@ async def delete_custom_voice(voice_id: int, session: AsyncSession = Depends(get
             )
         )
     ).all()
+    audio_paths = []
     for preset in presets:
-        await delete_preset_audio(session, preset.id)
+        audio_paths += await delete_preset_audio(session, preset.id)
         await session.delete(preset)
     await session.delete(voice)
     await session.commit()
+    remove_files(audio_paths)
     qwen.voice_path(voice_id).unlink(missing_ok=True)
     for preset in presets:
         pause_preview.remove(preset.id)

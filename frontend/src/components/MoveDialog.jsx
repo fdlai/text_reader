@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createCollection, listCollections } from "../api";
 import SearchBox from "./SearchBox";
+import { useModal } from "../useModal";
 
 // How many collections are listed at first, and how many more "Show more"
 // adds. Beyond that, typing narrows the list down.
@@ -39,9 +40,7 @@ export default function MoveDialog({
   const listId = useId();
 
   // The search box is the first thing in it, so it gets the focus.
-  useEffect(() => {
-    dialogRef.current.showModal();
-  }, []);
+  useModal(dialogRef);
 
   useEffect(() => {
     let current = true;

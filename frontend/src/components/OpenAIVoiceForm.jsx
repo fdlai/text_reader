@@ -58,18 +58,23 @@ export default function OpenAIVoiceForm({
   useEffect(() => {
     previewRef.current = preview;
   }, [preview]);
-  useEffect(
-    () => () => {
+  // Set on leaving the page, so a preview still loading doesn't play. (Set
+  // back on mounting: in development, React mounts everything twice.)
+  const leftRef = useRef(false);
+  useEffect(() => {
+    leftRef.current = false;
+    return () => {
+      leftRef.current = true;
       audioRef.current?.pause();
       if (previewRef.current) URL.revokeObjectURL(previewRef.current.url);
-    },
-    [],
-  );
+    };
+  }, []);
 
   const key = `${baseVoice}|${instructions}`;
   const unavailable = engines?.openai.available === false;
 
   function play(url) {
+    if (leftRef.current) return;
     audioRef.current?.pause();
     audioRef.current = new Audio(url);
     audioRef.current.play().catch((e) => setError(e.message));

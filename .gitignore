@@ -8,3 +8,7 @@ backend/models/
 
 # Personal notes, not for the repo
 PROJECT_NOTES.md
+
+# Test coverage reports
+.coverage
+htmlcov/

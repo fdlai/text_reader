@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createPronunciation,
   deletePronunciation,
@@ -7,6 +7,7 @@ import {
   updatePronunciation,
 } from "../api";
 import { useConfirm } from "../context/confirm";
+import { usePlayer } from "../context/PlayerContext";
 
 const EMPTY = { word: "", sounds_like: "" };
 
@@ -25,6 +26,20 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
   const [error, setError] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const confirm = useConfirm();
+  const player = usePlayer();
+  // The preview playing, and a count of previews started, so one that
+  // finishes loading after another started (or the panel closed) doesn't
+  // play. (The same as the Listening tab's pause preview.)
+  const audioRef = useRef(null);
+  const runRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      runRef.current++;
+      audioRef.current?.pause();
+    },
+    [],
+  );
 
   useEffect(() => {
     listPronunciations()
@@ -59,8 +74,12 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
 
   async function handlePreview(text) {
     if (!voice) return;
+    const run = ++runRef.current;
+    audioRef.current?.pause();
     setError("");
     setPreviewing(true);
+    // So the article and the preview don't talk over each other.
+    if (player.playing) player.toggle();
     try {
       const blob = await previewVoice({
         engine: voice.engine,
@@ -68,14 +87,16 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
         instructions: voice.instructions,
         text: sample(text),
       });
+      if (run !== runRef.current) return;
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      audioRef.current = audio;
       audio.onended = () => URL.revokeObjectURL(url);
       await audio.play();
     } catch (err) {
-      setError(err.message);
+      if (run === runRef.current) setError(err.message);
     } finally {
-      setPreviewing(false);
+      if (run === runRef.current) setPreviewing(false);
     }
   }
 

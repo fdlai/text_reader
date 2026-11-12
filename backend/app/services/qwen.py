@@ -376,7 +376,15 @@ async def stop_when_idle() -> None:
             async with _lock:
                 if _mode and time.monotonic() - _last_used > IDLE_SECONDS:
                     logger.info("Stopping Qwen after %d idle seconds", IDLE_SECONDS)
-                    await _stop()
+                    # A failure (e.g. Docker not responding) would otherwise
+                    # end this loop for good, so Qwen would never be stopped
+                    # for being idle again. (A container left running is
+                    # removed the next time Qwen starts, or when the app
+                    # closes.)
+                    try:
+                        await _stop()
+                    except Exception:
+                        logger.exception("Couldn't stop Qwen")
 
 
 def is_running() -> bool:

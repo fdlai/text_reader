@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { setDocumentCover } from "../api";
+import { useModal } from "../useModal";
 
 // A popup for changing an article's cover to an image from the web, or
 // removing it. onDone(hasCover) runs once it's saved.
@@ -12,9 +13,7 @@ export default function CoverDialog({ doc, onDone, onClose }) {
   const dialogRef = useRef(null);
   const collection = doc.collection_name ?? "Unsorted";
 
-  useEffect(() => {
-    dialogRef.current.showModal();
-  }, []);
+  useModal(dialogRef);
 
   // imageUrl null removes the cover.
   async function save(imageUrl) {

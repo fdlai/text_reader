@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useModal } from "../useModal";
 
 // Asks whether a collection's articles go with it. onDelete(deleteArticles)
 // is awaited; if it throws, its message is shown and the popup stays open.
@@ -14,11 +15,9 @@ export default function DeleteCollectionDialog({
   const dialogRef = useRef(null);
   const keepRef = useRef(null);
 
-  useEffect(() => {
-    dialogRef.current.showModal();
-    // The safe choice starts focused, so pressing Enter by habit keeps them.
-    keepRef.current.focus();
-  }, []);
+  useModal(dialogRef);
+  // The safe choice starts focused, so pressing Enter by habit keeps them.
+  useEffect(() => keepRef.current.focus(), []);
 
   async function handleDelete(deleteArticles) {
     setDeleting(true);

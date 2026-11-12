@@ -68,8 +68,16 @@ export default function ListeningTab({ voice, onChange }) {
     setPreviewState(null);
   }
 
-  // Stop when the panel closes or the tab changes.
-  useEffect(() => () => audioRef.current?.pause(), []);
+  // Stop when the panel closes or the tab changes, including a preview
+  // still loading: counting this as a stop keeps it from playing once its
+  // audio arrives.
+  useEffect(
+    () => () => {
+      runRef.current++;
+      audioRef.current?.pause();
+    },
+    [],
+  );
 
   async function startPreview() {
     const run = ++runRef.current;

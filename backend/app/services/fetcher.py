@@ -36,6 +36,11 @@ async def _assert_public_host(url: str) -> None:
         )
     except socket.gaierror:
         raise FetchError("Could not resolve the host.")
+    # A malformed address from a page (a redirect or an image), such as a
+    # port that isn't a number or a host name part over 63 characters.
+    # (Addresses the user types are checked before getting here.)
+    except ValueError:
+        raise FetchError("The address isn't valid.")
 
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
@@ -112,5 +117,7 @@ async def _fetch(
                     return bytes(body), content_type, response.encoding
             except httpx.HTTPError:
                 raise FetchError("Could not fetch the page.")
+            except httpx.InvalidURL:  # not an HTTPError, oddly
+                raise FetchError("The address isn't valid.")
 
     raise FetchError("Too many redirects.")

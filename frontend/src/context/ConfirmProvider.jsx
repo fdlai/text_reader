@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useModal } from "../useModal";
 import { ConfirmContext } from "./confirm";
 
 // A styled replacement for the browser's confirm() popup, mostly for actions
@@ -36,11 +37,10 @@ export default function ConfirmProvider({ children }) {
     [],
   );
 
+  useModal(dialogRef, request !== null);
+  // Cancel starts focused, so pressing Enter by habit doesn't delete.
   useEffect(() => {
-    if (!request) return;
-    dialogRef.current.showModal();
-    // Cancel starts focused, so pressing Enter by habit doesn't delete.
-    cancelRef.current.focus();
+    if (request) cancelRef.current.focus();
   }, [request]);
 
   function finish(confirmed) {

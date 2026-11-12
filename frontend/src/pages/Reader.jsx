@@ -35,6 +35,7 @@ import { useEngines } from "../useEngines";
 import {
   buildTimeline,
   chunkLength,
+  readyAudio,
   toPosition,
   wordIndexAt,
 } from "../timeline";
@@ -192,18 +193,6 @@ function playerSession(doc, presetId) {
   };
 }
 
-// { [chunkId]: { duration, audioId } } for the chunks whose audio is ready.
-function readyAudio(status) {
-  return Object.fromEntries(
-    status.chunks
-      .filter((c) => c.ready)
-      .map((c) => [
-        c.chunk_id,
-        { duration: c.duration_sec, audioId: c.audio_id },
-      ]),
-  );
-}
-
 export default function Reader() {
   const documentId = Number(useParams().id);
   const player = usePlayer();
@@ -224,6 +213,8 @@ export default function Reader() {
   const [progress, setProgress] = useState(null); // where listening left off
   const [pollKey, setPollKey] = useState(0);
   const [error, setError] = useState("");
+  // Kept apart from error: it clears itself once checking works again.
+  const [pollError, setPollError] = useState("");
   const [addingNext, setAddingNext] = useState(false);
   const [moving, setMoving] = useState(false); // the Move popup is open
   const [changingCover, setChangingCover] = useState(false);
@@ -298,11 +289,16 @@ export default function Reader() {
         const s = await getAudioStatus(documentId, presetId);
         if (cancelled) return;
         setStatus(s);
+        setPollError("");
         updateChunkAudio(documentId, presetId, readyAudio(s));
         // Nothing changes while paused; resuming runs this again.
         if (s.generating && !generation.paused) timer = setTimeout(poll, 2000);
       } catch (e) {
-        if (!cancelled) setError(e.message);
+        if (cancelled) return;
+        // A hiccup (e.g. the server restarting) shouldn't stop the updates
+        // for good, so it tries again a little later.
+        setPollError(e.message);
+        timer = setTimeout(poll, 5000);
       }
     }
     poll();
@@ -978,8 +974,10 @@ export default function Reader() {
         <p className="mt-3 text-sm text-amber-700">{status.notice}</p>
       )}
 
-      {(error || status?.error) && (
-        <p className="mt-3 text-red-600">{error || status.error}</p>
+      {(error || pollError || status?.error) && (
+        <p className="mt-3 text-red-600">
+          {error || pollError || status.error}
+        </p>
       )}
 
       <div

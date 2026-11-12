@@ -1,0 +1,12 @@
+# Settings for the coverage report: pytest --cov
+[run]
+source = app
+# SQLAlchemy's async mode runs code in greenlets (and some work runs in
+# threads), which coverage only follows when told to.
+concurrency = greenlet, thread
+# One-off scripts for filling in older data, not part of the app.
+omit = app/backfill_*.py
+
+[report]
+show_missing = false
+skip_empty = true

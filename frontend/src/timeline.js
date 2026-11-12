@@ -35,6 +35,19 @@ export function buildTimeline(chunks, durations) {
   };
 }
 
+// { [chunkId]: { duration, audioId } } for the chunks whose audio is ready,
+// from an audio status (getAudioStatus).
+export function readyAudio(status) {
+  return Object.fromEntries(
+    status.chunks
+      .filter((c) => c.ready)
+      .map((c) => [
+        c.chunk_id,
+        { duration: c.duration_sec, audioId: c.audio_id },
+      ]),
+  );
+}
+
 export function chunkLength(timeline, index) {
   const end = timeline.starts[index + 1] ?? timeline.total;
   return end - timeline.starts[index];

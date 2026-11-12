@@ -21,7 +21,7 @@ from app.schemas_audio import (
     VoicePreviewIn,
 )
 from app.services import pause_preview, qwen
-from app.services.generation import delete_preset_audio
+from app.services.generation import delete_preset_audio, remove_files
 from app.services.paragraph_audio import MAX_PAUSE
 from app.services.tts import VOICES, TTSError, synthesize
 
@@ -34,7 +34,7 @@ SAMPLE_TEXT = qwen.DESIGN_TEXT
 
 async def _check_voice(session: AsyncSession, body: VoicePresetIn) -> None:
     if body.engine == "qwen" and await session.get(CustomVoice, int(body.base_voice)) is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "That saved voice doesn't exist.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "That saved voice doesn't exist.")
 
 
 # Each engine's voices as {id, label}. Built-in voices are labelled by their
@@ -89,8 +89,7 @@ async def update_preset(
     # Existing audio no longer matches the voice, so it is discarded and regenerated on demand.
     old = (preset.engine, preset.base_voice, preset.instructions)
     changed = old != (body.engine, body.base_voice, body.instructions)
-    if changed:
-        await delete_preset_audio(session, preset_id)
+    audio_paths = await delete_preset_audio(session, preset_id) if changed else []
 
     for field, value in body.model_dump(exclude={"sample_b64"}).items():
         setattr(preset, field, value)
@@ -100,6 +99,7 @@ async def update_preset(
         raise HTTPException(
             status.HTTP_409_CONFLICT, "A voice with that name already exists."
         )
+    remove_files(audio_paths)
     if changed:
         _remove_samples(preset_id)
     if sample:
@@ -149,9 +149,10 @@ async def delete_preset(preset_id: int, session: AsyncSession = Depends(get_sess
     preset = await session.get(VoicePreset, preset_id)
     if preset is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Preset not found.")
-    await delete_preset_audio(session, preset_id)
+    audio_paths = await delete_preset_audio(session, preset_id)
     await session.delete(preset)
     await session.commit()
+    remove_files(audio_paths)
     _remove_samples(preset_id)
     pause_preview.remove(preset_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -170,7 +171,7 @@ async def preview_pause(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Preset not found.")
     if preset.engine == "openai":
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "OpenAI voices don't pause between paragraphs.",
         )
     try:
@@ -222,7 +223,7 @@ def _decode_sample(sample_b64: str | None) -> bytes | None:
     try:
         return base64.b64decode(sample_b64, validate=True)
     except binascii.Error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The sample isn't valid base64.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The sample isn't valid base64.")
 
 
 def _save_sample(preset: VoicePreset, audio: bytes) -> None:

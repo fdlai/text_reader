@@ -61,7 +61,7 @@ async def create_document(
         html = await fetch_html(url)
         article = await extract_article(html, url)
     except (FetchError, ExtractionError) as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
 
     document = Document(
         collection_id=body.collection_id,
@@ -112,10 +112,10 @@ async def create_text_document(
 
 def _check_text(text: str) -> None:
     if not text:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "There's no text to save.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "There's no text to save.")
     if len(text) > MAX_TEXT_CHARS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"That's more than {MAX_TEXT_CHARS:,} characters. "
             "Try splitting it into several articles.",
         )
@@ -130,6 +130,10 @@ def _title_from(text: str, max_chars: int = 60) -> str:
         if title and len(title) + 1 + len(word) > max_chars:
             return f"{title}…"
         title = f"{title} {word}".strip()
+        # One word can be too long by itself: a long web address, or text in
+        # a language written without spaces, such as Chinese.
+        if len(title) > max_chars:
+            return f"{title[:max_chars]}…"
     return title
 
 
@@ -506,7 +510,7 @@ async def update_cover(
             cover_type = await set_cover(ids, str(body.image_url))
         except FetchError as e:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, f"Couldn't use that image: {e}"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, f"Couldn't use that image: {e}"
             )
     await session.execute(
         update(Document).where(Document.id.in_(ids)).values(cover_type=cover_type)

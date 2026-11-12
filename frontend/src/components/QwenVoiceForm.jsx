@@ -36,12 +36,20 @@ export default function QwenVoiceForm({
   useEffect(() => {
     takesRef.current = takes;
   }, [takes]);
-  useEffect(
-    () => () => takesRef.current.forEach((t) => URL.revokeObjectURL(t.url)),
-    [],
-  );
+  // Set on leaving the page, so a take still being made doesn't play. (Set
+  // back on mounting: in development, React mounts everything twice.)
+  const leftRef = useRef(false);
+  useEffect(() => {
+    leftRef.current = false;
+    return () => {
+      leftRef.current = true;
+      audioRef.current?.pause();
+      takesRef.current.forEach((t) => URL.revokeObjectURL(t.url));
+    };
+  }, []);
 
   function play(url) {
+    if (leftRef.current) return;
     audioRef.current?.pause();
     audioRef.current = new Audio(url);
     audioRef.current.play().catch((e) => setError(e.message));

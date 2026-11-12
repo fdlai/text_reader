@@ -321,8 +321,10 @@ async def shutdown() -> None:
         await asyncio.gather(_worker, return_exceptions=True)
 
 
-async def delete_preset_audio(session: AsyncSession, preset_id: int) -> None:
-    """Delete a preset's audio rows and files (the caller commits)."""
+async def delete_preset_audio(session: AsyncSession, preset_id: int) -> list[str]:
+    """Delete a preset's audio rows. Returns their files, which the caller
+    removes (remove_files) only once it has committed, so a failed commit,
+    which brings the rows back, doesn't leave them without their files."""
     await cancel_generation(preset_id=preset_id)
     paths = (
         await session.scalars(
@@ -330,4 +332,4 @@ async def delete_preset_audio(session: AsyncSession, preset_id: int) -> None:
         )
     ).all()
     await session.execute(delete(AudioFile).where(AudioFile.voice_preset_id == preset_id))
-    remove_files(list(paths))
+    return list(paths)

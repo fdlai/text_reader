@@ -9,15 +9,25 @@ import {
 } from "react";
 import {
   chunkAudioUrl,
+  getAudioStatus,
   saveProgress,
   setDocumentVoice,
   updateVoiceSpeed,
 } from "../api";
-import { buildTimeline, fromPosition, toPosition } from "../timeline";
+import {
+  buildTimeline,
+  fromPosition,
+  readyAudio,
+  toPosition,
+} from "../timeline";
+import { useGeneration } from "./generation";
 
 const PlayerContext = createContext(null);
 
 export const usePlayer = () => useContext(PlayerContext);
+
+// How often to check for the section the player is waiting for.
+const WAITING_CHECK_MS = 3000;
 
 // How far the skip buttons and arrow keys move. Short, for going back or
 // forward about a sentence; the progress bar and "Play from here" are for
@@ -308,6 +318,40 @@ export function PlayerProvider({ children }) {
     },
     [],
   );
+
+  // While playing has caught up with generation, the section it's waiting
+  // for is checked for every few seconds, so listening carries on by itself
+  // on any page. (The Reader checks too while it's open, but you may have
+  // gone to the Library.) It stops if generation isn't running, since
+  // nothing more will arrive; resuming generation starts it again.
+  const { paused: generationPaused } = useGeneration();
+  const waitingDocumentId = waiting ? session.documentId : null;
+  const waitingPresetId = waiting ? session.presetId : null;
+  useEffect(() => {
+    if (waitingDocumentId === null || generationPaused) return;
+    let cancelled = false;
+    let timer;
+    async function check() {
+      try {
+        const status = await getAudioStatus(waitingDocumentId, waitingPresetId);
+        if (cancelled) return;
+        updateChunkAudio(
+          waitingDocumentId,
+          waitingPresetId,
+          readyAudio(status),
+        );
+        if (status.generating) timer = setTimeout(check, WAITING_CHECK_MS);
+      } catch {
+        // e.g. the server restarting: try again a little later.
+        if (!cancelled) timer = setTimeout(check, WAITING_CHECK_MS * 2);
+      }
+    }
+    timer = setTimeout(check, WAITING_CHECK_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [waitingDocumentId, waitingPresetId, generationPaused, updateChunkAudio]);
 
   // Moves to a point inside a chunk. If that chunk's audio is already
   // loaded, seek directly; otherwise seek once it loads.

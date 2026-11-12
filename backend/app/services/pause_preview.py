@@ -26,7 +26,10 @@ LINES = [
     "\"She did. Don't ask.\"",
 ]
 
-_DIR = Path(settings.samples_dir) / "pause-preview"
+def _dir() -> Path:
+    # Read each time rather than once at startup, so it follows the setting
+    # (the tests point it at a temporary folder).
+    return Path(settings.samples_dir) / "pause-preview"
 
 
 def _paths(preset: VoicePreset) -> list[Path]:
@@ -34,12 +37,12 @@ def _paths(preset: VoicePreset) -> list[Path]:
     # changed (or new lines) gets new files instead of reusing the old ones.
     key = "|".join([preset.engine, preset.base_voice, *LINES])
     fingerprint = hashlib.sha256(key.encode()).hexdigest()[:12]
-    return [_DIR / f"{preset.id}-{fingerprint}-{i}.wav" for i in range(len(LINES))]
+    return [_dir() / f"{preset.id}-{fingerprint}-{i}.wav" for i in range(len(LINES))]
 
 
 def remove(preset_id: int) -> None:
     """Deletes a voice's saved lines."""
-    for old in _DIR.glob(f"{preset_id}-*.wav"):
+    for old in _dir().glob(f"{preset_id}-*.wav"):
         old.unlink(missing_ok=True)
 
 
@@ -48,7 +51,7 @@ async def preview(preset: VoicePreset, pause: float) -> bytes:
     paths = _paths(preset)
     if not all(path.is_file() for path in paths):
         remove(preset.id)  # lines made with the voice's earlier settings
-        _DIR.mkdir(parents=True, exist_ok=True)
+        _dir().mkdir(parents=True, exist_ok=True)
         for line, path in zip(LINES, paths):
             samples, rate = await speak_paragraph(line, preset.engine, preset.base_voice)
             sf.write(path, samples, rate)

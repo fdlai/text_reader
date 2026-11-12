@@ -19,7 +19,9 @@ from app import models  # noqa: F401  (registers tables on Base.metadata)
 from app.config import settings
 from app.database import Base
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Alembic's config treats % as special, so a % in the URL (such as an encoded
+# character in the password) is doubled to mean a plain %.
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

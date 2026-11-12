@@ -15,7 +15,7 @@ def _apply(pronunciation: Pronunciation, body: PronunciationIn) -> None:
     key = normalize(body.word)
     if not key:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "The word needs letters or numbers."
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "The word needs letters or numbers."
         )
     pronunciation.word = body.word.strip()
     pronunciation.key = key

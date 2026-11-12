@@ -39,6 +39,7 @@ every day.
 - [A tour of the app](#a-tour-of-the-app)
 - [Under the hood](#under-the-hood)
 - [How this would scale](#how-this-would-scale)
+- [Running the tests](#running-the-tests)
 - [Tech stack](#tech-stack)
 - [Project layout](#project-layout)
 
@@ -685,6 +686,59 @@ respects it.
    accounts (see "Going multi-user"). Preferences are already one row, ready
    to become one row per user.
 
+## Running the tests
+
+The backend has about 160 tests (pytest) and the frontend about 80
+(Vitest). Install the test tools once:
+
+```
+cd backend
+pip install -r requirements-dev.txt
+```
+
+Then, with PostgreSQL running:
+
+```
+cd backend
+pytest
+```
+
+```
+cd frontend
+npm test
+```
+
+The backend tests use their own database, your database's name plus
+`_test` (such as `text_reader_test`), which they create and update to the
+latest migration on each run. They never touch your real database, and
+files they write go to a temporary folder. No speech engine or network is
+needed: downloads are answered by a stand-in, a fake speech engine makes
+the "audio", and audio files are small fake ones.
+
+What they cover:
+
+- **Backend:** splitting text into sections, matching sections after an
+  edit (including 300 random edits that must rebuild the new text exactly),
+  pronunciation swaps, word-timing helpers, finding the next chapter, the
+  page fetcher's safety checks (private addresses, redirects, size limits),
+  the generation queue (order, moving a job to the front, pausing,
+  cancelling, an edit removing the section being made), and the API:
+  adding, listing, paging, searching, editing (where the listening position
+  goes), moving and deleting articles, collections, voices,
+  pronunciations, preferences, generating and outdated audio.
+- **Frontend:** the player (moving through sections, finishing, saving the
+  position without saving too often, and carrying on while audio is still
+  being made), the Library, collection and article pages, the timeline
+  maths, API error messages, the text editor's drafts, the confirmation
+  popup and pronunciation previews. The page tests render the whole app
+  with a stand-in for the server.
+
+To see which lines the tests run (a coverage report), use
+`pytest --cov` in `backend` and `npm run test:coverage` in `frontend`. The
+backend is at about 76% and the frontend about 53%. What's left out on
+purpose is mostly code that talks to the real speech engines, Whisper and
+Docker, which needs model files and a GPU and is checked by hand.
+
 ## Tech stack
 
 - **Frontend:** React 19, Vite, Tailwind CSS v4, React Router 7
@@ -696,6 +750,8 @@ respects it.
   and OpenAI's gpt-4o-mini-tts
 - **Word timings:** faster-whisper
 - **Reading web pages:** httpx, trafilatura and lxml
+- **Tests:** pytest with pytest-asyncio; Vitest with React Testing Library
+  and jsdom
 
 ## Project layout
 
@@ -712,6 +768,7 @@ backend/
                       engines, word timing, the generation queue, Qwen
                       container control
   alembic/            database migrations
+  tests/              backend tests (pytest)
   models/             downloaded model files (git-ignored)
   storage/            generated audio, covers and voice samples (git-ignored)
 frontend/
@@ -719,4 +776,5 @@ frontend/
     pages/            Library (Home), Collection, Reader, TextEditor, Voices
     components/       player bar, listen bar, voice menu, panels, popups, ...
     context/          player, generation queue and preferences state
+    *.test.js(x)      frontend tests (Vitest), next to what they test
 ```
