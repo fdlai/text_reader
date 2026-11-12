@@ -3,7 +3,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,21 +13,28 @@ from app.database import get_session
 from app.models import AudioFile, Chunk, Collection, Document, PlaybackProgress, VoicePreset
 from app.schemas import (
     MAX_PAGE_SIZE,
+    MAX_TEXT_CHARS,
+    DocumentCover,
     DocumentCreate,
     DocumentDetail,
     DocumentIds,
+    DocumentText,
+    DocumentTextCreate,
+    DocumentTextUpdate,
+    DocumentTextUpdated,
     DocumentsMove,
     DocumentVoice,
     LibraryItem,
     LibraryPage,
     Progress,
 )
-from app.services.chunker import chunk_text
-from app.services.covers import cover_path, save_cover
+from app.services.chunker import chunk_rows, chunk_text
+from app.services.covers import cover_path, save_cover, set_cover
+from app.services.editing import only_removed, plan_edit
 from app.services.extractor import ExtractionError, extract_article
 from app.services.fetcher import FetchError, fetch_html
 from app.services.deletion import delete_documents
-from app.services.generation import audio_counts
+from app.services.generation import audio_counts, remove_files, skip_chunks
 from app.services.next_link import without_fragment
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -80,6 +87,52 @@ async def create_document(
     return await _detail(session, document)
 
 
+@router.post("/text", response_model=DocumentDetail, status_code=status.HTTP_201_CREATED)
+async def create_text_document(
+    body: DocumentTextCreate, session: AsyncSession = Depends(get_session)
+):
+    """A document from text typed or pasted in. It has no page, so no
+    source_url, next part or cover."""
+    _check_text(body.text)
+    if body.collection_id is not None and not await session.get(
+        Collection, body.collection_id
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Collection not found.")
+
+    document = Document(
+        collection_id=body.collection_id,
+        title=body.title or _title_from(body.text),
+        text=body.text,
+        chunks=[Chunk(**c) for c in chunk_text(body.text)],
+    )
+    session.add(document)
+    await session.commit()
+    return await _detail(session, document)
+
+
+def _check_text(text: str) -> None:
+    if not text:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "There's no text to save.")
+    if len(text) > MAX_TEXT_CHARS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"That's more than {MAX_TEXT_CHARS:,} characters. "
+            "Try splitting it into several articles.",
+        )
+
+
+def _title_from(text: str, max_chars: int = 60) -> str:
+    """The text's first words, up to about max_chars, for an untitled
+    document."""
+    words = text.split()
+    title = ""
+    for word in words:
+        if title and len(title) + 1 + len(word) > max_chars:
+            return f"{title}…"
+        title = f"{title} {word}".strip()
+    return title
+
+
 async def _already_added(session: AsyncSession, document_id: int) -> HTTPException:
     # Names where it is, and the id lets the page link to it.
     name = await session.scalar(
@@ -98,6 +151,7 @@ async def _already_added(session: AsyncSession, document_id: int) -> HTTPExcepti
 
 async def _detail(session: AsyncSession, document: Document) -> DocumentDetail:
     detail = DocumentDetail.model_validate(document)
+    detail.has_cover = document.cover_type is not None
     if document.collection_id is not None:
         detail.collection_name = await session.scalar(
             select(Collection.name).where(Collection.id == document.collection_id)
@@ -327,12 +381,140 @@ async def get_cover(document_id: int, session: AsyncSession = Depends(get_sessio
     if document is None or document.cover_type is None or not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No cover image.")
     # nosniff: the browser must treat it as the saved image type and nothing
-    # else, even if the file's contents look like something else.
+    # else, even if the file's contents look like something else. no-cache:
+    # the browser checks each time whether its copy is still current (a
+    # quick "not modified" if so), since a cover can be changed.
     return FileResponse(
         path,
         media_type=document.cover_type,
-        headers={"X-Content-Type-Options": "nosniff"},
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"},
     )
+
+
+@router.get("/{document_id}/text", response_model=DocumentText)
+async def get_text(document_id: int, session: AsyncSession = Depends(get_session)):
+    document = await session.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
+    return document
+
+
+@router.put("/{document_id}/text", response_model=DocumentTextUpdated)
+async def update_text(
+    document_id: int,
+    body: DocumentTextUpdate,
+    session: AsyncSession = Depends(get_session),
+):
+    """Replace a document's title and text. Chunks whose text is unchanged
+    keep their audio (see services/editing.py); the others are replaced, and
+    any job generating its audio carries on with the new ones.
+
+    The listening position stays where it is if its chunk is unchanged, and
+    otherwise moves to the start of the first new chunk. A finished document
+    is unfinished if there's anything new in it to hear.
+    """
+    _check_text(body.text)
+    document = await session.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
+    chunks = (
+        await session.scalars(
+            select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.index)
+        )
+    ).all()
+
+    plan = plan_edit(document.text, [c.text_hash for c in chunks], body.text)
+    old_count, front = len(chunks), plan.keep_front
+    removed = chunks[front : old_count - plan.keep_back]
+    back = chunks[old_count - plan.keep_back :] if plan.keep_back else []
+    new_rows = chunk_rows(plan.middle, first_index=front)
+    added = len(new_rows)
+
+    removed_ids = {c.id for c in removed}
+    audio_paths = (
+        await session.scalars(
+            select(AudioFile.file_path).where(AudioFile.chunk_id.in_(removed_ids))
+        )
+    ).all()
+    # Their audio goes with them (ON DELETE CASCADE).
+    await session.execute(delete(Chunk).where(Chunk.id.in_(removed_ids)))
+    # The chunks kept at the end move to after the new ones. Each chunk's
+    # index is unique within its document, so they're moved out of the way
+    # first.
+    for i, chunk in enumerate(back):
+        chunk.index = -1 - i
+    await session.flush()
+    session.add_all(Chunk(document_id=document_id, **row) for row in new_rows)
+    await session.flush()
+    for i, chunk in enumerate(back):
+        chunk.index = front + added + i
+
+    document.title = body.title or _title_from(body.text)
+    document.text = body.text
+
+    progress = await session.get(PlaybackProgress, document_id)
+    if progress:
+        total = front + added + len(back)
+        nothing_new = added == 0 or only_removed(
+            [c.text for c in removed], [r["text"] for r in new_rows]
+        )
+        if progress.finished and not nothing_new:
+            progress.finished = False
+            progress.chunk_index, progress.offset_sec = front, 0
+        elif progress.chunk_index >= old_count - len(back):
+            # In a chunk kept at the end, which may have moved.
+            progress.chunk_index += front + added - (old_count - len(back))
+        elif progress.chunk_index >= front:
+            # In a chunk that was replaced.
+            progress.chunk_index, progress.offset_sec = front, 0
+        # Everything from there to the end was deleted: the last chunk.
+        if progress.chunk_index >= total:
+            progress.chunk_index, progress.offset_sec = total - 1, 0
+
+    await session.commit()
+    # Only once the rows are gone, so a failed edit doesn't lose the files.
+    await skip_chunks(removed_ids)
+    remove_files(list(audio_paths))
+    return DocumentTextUpdated(changed=added, first_changed=front if added else None)
+
+
+@router.put("/{document_id}/cover", status_code=status.HTTP_204_NO_CONTENT)
+async def update_cover(
+    document_id: int, body: DocumentCover, session: AsyncSession = Depends(get_session)
+):
+    """Set a document's cover from an image's address (downloaded once and
+    saved, like the covers found on pages), or remove it."""
+    document = await session.get(Document, document_id)
+    if document is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found.")
+    ids = [document_id]
+    if body.whole_collection:
+        ids = (
+            await session.scalars(
+                select(Document.id).where(
+                    Document.collection_id.is_(None)
+                    if document.collection_id is None
+                    else Document.collection_id == document.collection_id
+                )
+            )
+        ).all()
+
+    if body.image_url is None:
+        cover_type = None
+    else:
+        try:
+            cover_type = await set_cover(ids, str(body.image_url))
+        except FetchError as e:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f"Couldn't use that image: {e}"
+            )
+    await session.execute(
+        update(Document).where(Document.id.in_(ids)).values(cover_type=cover_type)
+    )
+    await session.commit()
+    if cover_type is None:
+        remove_files([str(cover_path(i)) for i in ids])
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{document_id}/progress", response_model=Progress)

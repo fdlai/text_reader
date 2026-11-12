@@ -19,7 +19,12 @@ from app.services.fetcher import FetchError, fetch_html
 async def main() -> None:
     async with SessionLocal() as session:
         documents = (
-            await session.scalars(select(Document).where(Document.cover_type.is_(None)))
+            await session.scalars(
+                # Text typed in has no page to look at.
+                select(Document).where(
+                    Document.cover_type.is_(None), Document.source_url.is_not(None)
+                )
+            )
         ).all()
         print(f"{len(documents)} documents have no cover.")
         for i, document in enumerate(documents, start=1):

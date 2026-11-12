@@ -10,6 +10,7 @@ import { PlayerProvider } from "./context/PlayerContext";
 import { PAGE_WIDTHS, usePreferences } from "./context/preferences";
 import Collection from "./pages/Collection";
 import Home from "./pages/Home";
+import TextEditor from "./pages/TextEditor";
 import Reader from "./pages/Reader";
 import Voices from "./pages/Voices";
 
@@ -25,6 +26,11 @@ function ReaderPage() {
 function CollectionPage() {
   const { id } = useParams();
   return <Collection key={id} />;
+}
+
+function EditorPage({ editing = false }) {
+  const { id } = useParams();
+  return <TextEditor key={`${editing}:${id}`} editing={editing} />;
 }
 
 export default function App() {
@@ -56,6 +62,11 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/collections/:id" element={<CollectionPage />} />
+            <Route path="/collections/:id/new" element={<EditorPage />} />
+            <Route
+              path="/documents/:id/edit"
+              element={<EditorPage editing />}
+            />
             <Route path="/documents/:id" element={<ReaderPage />} />
             <Route path="/voices" element={<Voices />} />
           </Routes>

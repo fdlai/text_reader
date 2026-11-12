@@ -12,6 +12,7 @@ import {
   regenerateOutdated,
 } from "../api";
 import ChunkText from "../components/ChunkText";
+import CoverDialog from "../components/CoverDialog";
 import EngineNotice from "../components/EngineNotice";
 import ListenBar from "../components/ListenBar";
 import MoveDialog from "../components/MoveDialog";
@@ -28,7 +29,8 @@ import {
   usePreferences,
 } from "../context/preferences";
 import { defaultVoiceId } from "../engines";
-import { collectionPath } from "../paths";
+import { takeEditNotice } from "../editNotice";
+import { collectionPath, editPath } from "../paths";
 import { useEngines } from "../useEngines";
 import {
   buildTimeline,
@@ -224,6 +226,9 @@ export default function Reader() {
   const [error, setError] = useState("");
   const [addingNext, setAddingNext] = useState(false);
   const [moving, setMoving] = useState(false); // the Move popup is open
+  const [changingCover, setChangingCover] = useState(false);
+  // What an edit just changed (see editNotice.js), until dismissed.
+  const [editNotice, setEditNotice] = useState(null);
   // When true, the page scrolls to keep the text being read on screen.
   const [following, setFollowing] = useState(true);
   // Stops the glide in progress (see glideBy), or null when there's none.
@@ -255,6 +260,13 @@ export default function Reader() {
         );
       })
       .catch((e) => setError(e.message));
+  }, [documentId]);
+
+  // Coming back from editing this article. (Only set if there's a notice,
+  // since this runs twice in development and only the first gets it.)
+  useEffect(() => {
+    const notice = takeEditNotice(documentId);
+    if (notice) setEditNotice(notice);
   }, [documentId]);
 
   // The browser tab shows the article's title while it's open.
@@ -717,6 +729,17 @@ export default function Reader() {
     );
   }
 
+  // Plays from the first section an edit changed, making its audio first if
+  // it has none yet.
+  function goToChanges() {
+    const index = editNotice.first_changed;
+    setEditNotice(null);
+    if (!isReady(index) && !status.generating && canGenerate) {
+      handleGenerate(true);
+    }
+    play(index, 0);
+  }
+
   // Continues from the saved position, or starts over if it was finished.
   function resume() {
     if (progress.finished) play(0, 0);
@@ -822,8 +845,16 @@ export default function Reader() {
     ));
 
   const menu = [
+    {
+      label: "Edit text",
+      // So the editor can come back here with the browser's Back.
+      onClick: () =>
+        navigate(editPath(doc.id), { state: { fromReader: true } }),
+    },
+    { label: "Change cover", onClick: () => setChangingCover(true) },
     { label: "Move to another collection", onClick: () => setMoving(true) },
-    { label: "Open original page ↗", href: doc.source_url },
+    // Text typed or pasted in has no page.
+    doc.source_url && { label: "Open original page ↗", href: doc.source_url },
     status?.generating
       ? {
           note: "To delete this audio while it's generating, remove it from the queue.",
@@ -855,6 +886,16 @@ export default function Reader() {
           onClose={() => setMoving(false)}
         />
       )}
+      {changingCover && (
+        <CoverDialog
+          doc={doc}
+          onDone={(hasCover) => {
+            setDoc((d) => ({ ...d, has_cover: hasCover }));
+            setChangingCover(false);
+          }}
+          onClose={() => setChangingCover(false)}
+        />
+      )}
 
       <ListenBar
         action={action}
@@ -878,6 +919,33 @@ export default function Reader() {
         made={percent(madeSeconds)}
         heard={percent(listenedSeconds)}
       />
+
+      {editNotice && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600">
+          <p>
+            Text updated
+            {editNotice.changed > 0 &&
+              `: ${editNotice.changed} ${editNotice.changed === 1 ? "section" : "sections"} changed`}
+            .
+          </p>
+          {editNotice.changed > 0 && status && (
+            <button
+              onClick={goToChanges}
+              className="font-medium text-black underline underline-offset-2"
+            >
+              Go to changes
+            </button>
+          )}
+          <button
+            onClick={() => setEditNotice(null)}
+            aria-label="Dismiss"
+            title="Dismiss"
+            className="ml-auto rounded-full px-2 text-gray-500 hover:bg-black/5 hover:text-black"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {status && !allReady && (
         <div className="mt-3">

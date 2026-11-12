@@ -18,7 +18,12 @@ from app.services.next_link import find_next_url
 async def main() -> None:
     async with SessionLocal() as session:
         documents = (
-            await session.scalars(select(Document).where(Document.next_url.is_(None)))
+            await session.scalars(
+                # Text typed in has no page to look at.
+                select(Document).where(
+                    Document.next_url.is_(None), Document.source_url.is_not(None)
+                )
+            )
         ).all()
         print(f"{len(documents)} documents have no next part.")
         for i, document in enumerate(documents, start=1):

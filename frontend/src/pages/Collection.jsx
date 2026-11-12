@@ -22,6 +22,7 @@ import SearchBox from "../components/SearchBox";
 import SortSelect from "../components/SortSelect";
 import { useConfirm } from "../context/confirm";
 import { usePlayer } from "../context/PlayerContext";
+import { newTextPath } from "../paths";
 import { useListParams } from "../useListParams";
 
 const PAGE_SIZE = 50;
@@ -71,6 +72,8 @@ export default function Collection() {
   const [adding, setAdding] = useState(false);
   // Set when the pasted page is already in the Library: the copy's id.
   const [existingId, setExistingId] = useState(null);
+  // Set when the pasted page couldn't be downloaded or read.
+  const [addFailed, setAddFailed] = useState(false);
   // The open popup: "rename", "delete" or null.
   const [dialog, setDialog] = useState(null);
   // In Select mode, the ids of the ticked articles; null otherwise.
@@ -152,6 +155,7 @@ export default function Collection() {
     setAdding(true);
     setError("");
     setExistingId(null);
+    setAddFailed(false);
     try {
       await createDocument(url.trim(), collectionId);
       // Shown first in the usual view (newest first, nothing left out), so
@@ -163,6 +167,8 @@ export default function Collection() {
     } catch (err) {
       setError(err.message);
       setExistingId(err.detail?.document_id ?? null);
+      // 422: downloaded but no article found in it, or not downloaded.
+      setAddFailed(err.status === 422);
     } finally {
       setAdding(false);
     }
@@ -205,6 +211,7 @@ export default function Collection() {
     });
     if (!confirmed) return;
     setError("");
+    setAddFailed(false);
     try {
       // As when deleting one article: stop it if it's about to disappear.
       if (selected.includes(player.session?.documentId)) player.close(false);
@@ -244,6 +251,7 @@ export default function Collection() {
     });
     if (!confirmed) return;
     setError("");
+    setAddFailed(false);
     try {
       // Its audio is about to disappear, so stop it if it's playing. No
       // point saving the position of a deleted article.
@@ -318,7 +326,14 @@ export default function Collection() {
           </div>
           <p className="mt-1.5 text-sm text-gray-500">
             Paste the address of a web page, such as a chapter or a blog post.
-            Its text is pulled out for you to listen to.
+            Its text is pulled out for you to listen to. Or{" "}
+            <Link
+              to={newTextPath(collectionId)}
+              className="text-gray-700 underline hover:text-black"
+            >
+              type or paste your own text
+            </Link>
+            .
           </p>
         </form>
       )}
@@ -329,6 +344,13 @@ export default function Collection() {
           {existingId && (
             <Link to={`/documents/${existingId}`} className="underline">
               Open it
+            </Link>
+          )}
+          {/* The page couldn't be read, but its text can still be copied
+              from it in the browser. */}
+          {addFailed && (
+            <Link to={newTextPath(collectionId)} className="underline">
+              Paste its text instead
             </Link>
           )}
         </p>
@@ -489,7 +511,7 @@ export default function Collection() {
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{doc.title}</p>
                 <p className="truncate text-sm text-gray-500">
-                  {doc.source_url}
+                  {doc.source_url ?? "Your text"}
                 </p>
                 <ListeningStatus
                   finished={doc.finished}

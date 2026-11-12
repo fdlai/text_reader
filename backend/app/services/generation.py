@@ -18,6 +18,7 @@ from pathlib import Path
 
 from mutagen.mp3 import MP3
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -45,6 +46,8 @@ _wakeup = asyncio.Event()
 _worker: asyncio.Task | None = None
 # The job being worked on and the task generating its current chunk.
 _current: tuple[Key, asyncio.Task] | None = None
+# The id of the chunk that task is generating, once it has picked one.
+_current_chunk: int | None = None
 # While True, the worker doesn't start any chunks. Jobs can still be queued.
 _paused = False
 
@@ -107,6 +110,8 @@ async def _next_chunk(document_id: int, preset_id: int) -> bool:
         )
         if chunk is None:
             return False
+        global _current_chunk
+        _current_chunk = chunk.id
         # The voice reads the text with pronunciation entries swapped in;
         # word timings are still matched against the real text.
         spoken_text, used = (await load_lexicon(session)).apply(chunk.text)
@@ -147,7 +152,14 @@ async def _next_chunk(document_id: int, preset_id: int) -> bool:
                     paragraph_pause=pause,
                 )
             )
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError:
+                # The chunk was removed while its audio was being made (its
+                # document's text was edited), so the audio isn't needed.
+                # Carry on with the next one.
+                path.unlink(missing_ok=True)
+                return True
     except BaseException:
         # Not saved (e.g. cancelled), so don't leave the file behind.
         path.unlink(missing_ok=True)
@@ -163,7 +175,7 @@ def _finish(key: Key, error: str | None = None) -> None:
 
 
 async def _work() -> None:
-    global _current
+    global _current, _current_chunk
     while True:
         await _wakeup.wait()
         _wakeup.clear()
@@ -186,6 +198,7 @@ async def _work() -> None:
                 continue
             finally:
                 _current = None
+                _current_chunk = None
             if not more:
                 _finish(key)
 
@@ -290,6 +303,16 @@ async def cancel_generation(
     # Nothing left to resume, so don't stay paused (and keep saying so).
     if not _queue:
         _paused = False
+
+
+async def skip_chunks(chunk_ids: set[int]) -> None:
+    """Stop generating the chunk in progress if it's one of these (e.g.
+    they were removed by an edit). Its job stays queued and carries on with
+    its next chunk without audio."""
+    if _current and _current_chunk in chunk_ids:
+        task = _current[1]
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 async def shutdown() -> None:

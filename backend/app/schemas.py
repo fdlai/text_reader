@@ -77,6 +77,47 @@ class DocumentCreate(BaseModel):
     collection_id: int | None = None
 
 
+# The most text one document can have: about a long novel. More is better
+# split into several documents.
+MAX_TEXT_CHARS = 500_000
+
+
+# A document's title and full text, for editing.
+class DocumentText(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    title: str
+    text: str
+
+
+# A document's new title and text.
+class DocumentTextUpdate(BaseModel):
+    # Left empty, the start of the text is used.
+    title: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
+    text: Annotated[str, StringConstraints(strip_whitespace=True)]
+
+
+# Text typed or pasted in, rather than downloaded from a page.
+class DocumentTextCreate(DocumentTextUpdate):
+    # None puts it in Unsorted.
+    collection_id: int | None = None
+
+
+# What an edit changed: how many chunks are new (and need audio) and the
+# index of the first, or None if none are (nothing changed, or something
+# was only deleted).
+class DocumentTextUpdated(BaseModel):
+    changed: int
+    first_changed: int | None
+
+
+class DocumentCover(BaseModel):
+    # None removes the cover.
+    image_url: HttpUrl | None
+    # Also use it for every other document in the same collection.
+    whole_collection: bool = False
+
+
 class ChunkOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -99,7 +140,8 @@ class DocumentSummary(BaseModel):
 
     id: int
     title: str
-    source_url: str
+    # None for text typed or pasted in.
+    source_url: str | None
     created_at: datetime
 
 
@@ -132,6 +174,7 @@ class DocumentDetail(DocumentSummary):
     # The voice to open it with: the one it was last played or generated
     # with, else the one with the most audio for it. None for neither.
     voice_preset_id: int | None = None
+    has_cover: bool = False
 
 
 class PronunciationIn(BaseModel):

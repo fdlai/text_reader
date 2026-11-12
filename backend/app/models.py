@@ -40,8 +40,9 @@ class Document(Base):
         ForeignKey("collections.id", ondelete="SET NULL"), index=True
     )
     # Indexed, so finding a document by its URL stays fast however many
-    # there are. Unique: the same page can't be added twice.
-    source_url: Mapped[str] = mapped_column(Text, unique=True)
+    # there are. Unique: the same page can't be added twice. None for text
+    # typed or pasted in, which has no page (any number can be None).
+    source_url: Mapped[str | None] = mapped_column(Text, unique=True)
     # The page's link to its next part (e.g. the next chapter), if it has one.
     next_url: Mapped[str | None] = mapped_column(Text)
     # The voice it was last played or generated with, so it opens with that

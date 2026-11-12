@@ -21,6 +21,9 @@ every day.
 - **Made for web novels:** collections for each series, "Add next part"
   finds the next chapter for you, progress and time left on every chapter,
   and it remembers where you stopped.
+- **Any text, not just web pages:** paste an email, a document or your own
+  writing. Edit any article's text later, and only the sections you changed
+  are made again.
 - **Pronunciation fixes** for character names, without changing the text you
   read. Only the sections that used an old spelling are made again.
 - **Comfortable reading:** four themes, 15 fonts (including OpenDyslexic and
@@ -215,7 +218,8 @@ other GPU-heavy apps (games, many browser tabs) keeps it fast.
   Remove it (System Properties → Environment Variables), then restart your
   terminal or editor.
 - **Some sites don't work:** pages that build their text with JavaScript
-  after loading, or that block automated requests, can't be read yet.
+  after loading, or that block automated requests, can't be read yet. Copy
+  the text from the page and use **Type or paste your own text** instead.
 
 ## A tour of the app
 
@@ -240,6 +244,11 @@ The front page has two parts:
   keeps the article and drops menus, ads and comments. It also saves the
   page's cover image. If the page is already in your library, it says which
   collection it's in, with a link to open it.
+- **Type or paste your own text** instead, such as an email, a PDF's text or
+  a draft you want to hear read back. The title is optional (the first words
+  are used), and what you type is kept in the browser until you save, so a
+  refresh or closed tab doesn't lose it. If a page can't be read, the error
+  offers **Paste its text instead**.
 - **Tabs** split the list into All, Not started, In progress and Finished,
   each with a count, so you can see how many chapters are left at a glance.
 - **Sort** by Newest added, Oldest added (chapter order, for a novel) or
@@ -254,14 +263,22 @@ The front page has two parts:
   delete its articles too, or keep them in Unsorted. The keep option is the
   one Enter picks.
 
+![Editing an article's text](docs/screenshots/editor.png)
+
 ### Reading and listening
 
 ![The listen bar with the voice menu open](docs/screenshots/voice-menu.png)
 
 - **The listen bar** at the top of an article has the Play button, the voice
   under it, how long is left (or how far along the audio is), and a **⋯**
-  menu for moving the article, opening the original page or deleting a
-  voice's audio.
+  menu for editing the text, changing the cover, moving the article, opening
+  the original page or deleting a voice's audio.
+- **Edit text** fixes what a page got wrong, like a translator's note or a
+  "Read more at…" line you don't want read aloud. Sections you don't touch
+  keep their audio, your place is kept, and a message offers **Go to
+  changes**.
+- **Change cover** takes any image's web address, for this article or every
+  article in its collection.
 - **The voice menu** has a tab for each engine and a ▶ sample for every
   voice. **On this article** lists the voices that already have audio for
   this article, such as "All sections" or "6 of 14 sections", so you never
@@ -408,6 +425,26 @@ to a maximum of 1,500 characters.
 - The 1,500 maximum exists because OpenAI's voice was found to cut long
   inputs short: one 4,000-character section came back as 16 seconds of audio
   instead of about 4 minutes.
+
+### Editing without remaking everything
+
+Because sections grow, their sizes depend on their position. Splitting an
+edited text from scratch would move every boundary after the edit, so fixing
+one typo in chapter 1 would remake the audio for the whole chapter.
+
+Instead, an edit keeps every section at the start and the end whose
+paragraphs didn't change, and splits only the paragraphs between them. A
+one-sentence change remakes one section. Tested on 2,000 random edits, the
+result always matched the new text exactly.
+
+- **Your place:** it stays where it was if that section is unchanged (moving
+  with the new numbering), and otherwise goes to the start of the first
+  change. A finished article is unfinished again only if there's something
+  new to hear. Deleting text leaves it finished.
+- **Editing while it's generating:** the job keeps going. The generator
+  always asks the database for the next section without audio, so it simply
+  continues with the new ones. Only a section being made at that moment, if
+  the edit removed it, is stopped.
 
 ### One queue, not twenty parallel jobs
 
@@ -625,14 +662,15 @@ backend/
     routers/          API endpoints (documents, collections, audio,
                       voices, preferences, pronunciations, ...)
     services/         page fetching and text extraction, splitting into
-                      sections, speech engines, word timing, the
-                      generation queue, Qwen container control
+                      sections (and matching them after an edit), speech
+                      engines, word timing, the generation queue, Qwen
+                      container control
   alembic/            database migrations
   models/             downloaded model files (git-ignored)
   storage/            generated audio, covers and voice samples (git-ignored)
 frontend/
   src/
-    pages/            Library (Home), Collection, Reader, Voices
+    pages/            Library (Home), Collection, Reader, TextEditor, Voices
     components/       player bar, listen bar, voice menu, panels, popups, ...
     context/          player, generation queue and preferences state
 ```

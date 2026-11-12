@@ -14,6 +14,7 @@ async function request(path, options, parse = (r) => r.json()) {
       // response had no JSON body
     }
     const error = new Error(message);
+    error.status = response.status;
     error.detail = detail;
     throw error;
   }
@@ -107,6 +108,29 @@ export const moveDocuments = (documentIds, collectionId) =>
 // set to the copy that's there.
 export const createDocument = (url, collectionId) =>
   request("/documents", json("POST", { url, collection_id: collectionId }));
+
+// Text typed or pasted in. An empty title uses the start of the text.
+export const createTextDocument = (title, text, collectionId) =>
+  request(
+    "/documents/text",
+    json("POST", { title, text, collection_id: collectionId }),
+  );
+
+// { title, text }, for editing.
+export const getDocumentText = (id) => request(`/documents/${id}/text`);
+
+// Returns { changed, first_changed }: how many sections are new (and need
+// audio), and the first one's index (null if none).
+export const updateDocumentText = (id, title, text) =>
+  request(`/documents/${id}/text`, json("PUT", { title, text }));
+
+// imageUrl null removes the cover. wholeCollection: also every other
+// article in its collection.
+export const setDocumentCover = (id, imageUrl, wholeCollection) =>
+  request(
+    `/documents/${id}/cover`,
+    json("PUT", { image_url: imageUrl, whole_collection: wholeCollection }),
+  );
 
 export const deleteDocument = (id) =>
   request(`/documents/${id}`, { method: "DELETE" });

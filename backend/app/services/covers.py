@@ -34,6 +34,16 @@ async def save_cover(document_id: int, image_url: str | None) -> str | None:
     return content_type
 
 
+async def set_cover(document_ids: list[int], image_url: str) -> str:
+    """Download an image chosen as the cover of these documents, once, and
+    save it for each. Returns its type. Raises FetchError if it can't be
+    downloaded."""
+    data, content_type = await fetch_image(image_url)
+    for document_id in document_ids:
+        await asyncio.to_thread(_write, cover_path(document_id), data)
+    return content_type
+
+
 def _write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
