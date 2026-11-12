@@ -181,7 +181,7 @@ export default function PlayerBar() {
           barHidden ? "translate-y-full" : ""
         }`}
       >
-        <div className="flex items-center gap-3 px-8 pt-3 text-xs text-gray-500 tabular-nums">
+        <div className="flex items-center gap-3 px-4 pt-3 text-xs text-gray-500 tabular-nums sm:px-8">
           <span className="w-14">{formatTime(elapsed)}</span>
           <input
             type="range"
@@ -200,7 +200,10 @@ export default function PlayerBar() {
             {timeline.exact ? "" : "~"}-{formatTime(remaining)}
           </span>
         </div>
-        <div className="mx-auto flex max-w-2xl items-center gap-4 px-8 py-3">
+        {/* On a phone, room is kept on the right for the hide button, and
+            volume and Preferences are left out: a phone has volume
+            buttons, and the header has Preferences. */}
+        <div className="mx-auto flex max-w-2xl items-center gap-3 py-3 pr-14 pl-4 sm:gap-4 sm:px-8">
           <Link
             to={`/documents/${session.documentId}`}
             className="min-w-0 flex-1"
@@ -237,19 +240,21 @@ export default function PlayerBar() {
             +{SKIP_SECONDS}s
           </button>
           <SpeedControl rate={rate} onChange={changeRate} />
-          <VolumeControl
-            volume={volume}
-            muted={muted}
-            onChange={changeVolume}
-            onToggleMute={toggleMute}
-          />
+          <div className="hidden sm:block">
+            <VolumeControl
+              volume={volume}
+              muted={muted}
+              onChange={changeVolume}
+              onToggleMute={toggleMute}
+            />
+          </div>
           {/* The Preferences panel belongs to the article page. */}
           {reading && (
             <button
               onClick={togglePanel}
               title="Preferences (P)"
               aria-label="Preferences"
-              className="text-lg text-gray-600 hover:text-black"
+              className="hidden text-lg text-gray-600 hover:text-black sm:block"
             >
               ⚙
             </button>

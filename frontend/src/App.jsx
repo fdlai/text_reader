@@ -58,7 +58,8 @@ export default function App() {
     <PlayerProvider>
       <BreadcrumbContext.Provider value={breadcrumbValue}>
         <Header />
-        <main className={`mx-auto ${width} p-8 pb-32`}>
+        {/* Less padding on a phone, where every pixel of width counts. */}
+        <main className={`mx-auto ${width} px-4 pt-4 pb-32 sm:px-8 sm:pt-8`}>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/collections/:id" element={<CollectionPage />} />

@@ -29,6 +29,8 @@ every day.
 - **Comfortable reading:** four themes, 15 fonts (including OpenDyslexic and
   Atkinson Hyperlegible), text up to 60 px for listening across the room.
 - **Keyboard shortcuts** for everything you do while listening.
+- **Listen from your phone** on the same Wi-Fi, while your computer makes
+  the audio.
 
 ## Contents
 
@@ -203,6 +205,35 @@ minutes, so it only uses your GPU while making audio. Qwen makes audio faster
 than real time on an RTX 3050 Ti (4 GB), but memory is tight, so closing
 other GPU-heavy apps (games, many browser tabs) keeps it fast.
 
+### Optional: Listening from your phone
+
+Your computer does all the work, so any phone on the same Wi-Fi can use the
+app in its browser: listen in the kitchen while your PC makes the audio.
+
+1. Start the frontend with `npm run dev:phone` instead of `npm run dev`.
+   Besides the usual `Local:` address it prints a `Network:` one, such as
+   `http://192.168.1.23:5173`. (It may print a few; use the one starting with
+   `192.168.` or `10.`, not a VPN's.)
+2. Open that address on your phone. Adding it to your home screen makes it
+   open like an app.
+
+The backend doesn't change: the frontend passes the phone's requests on to
+it, so it stays reachable from your computer only.
+
+On Windows, two settings decide whether the phone can connect:
+
+- **Your Wi-Fi must be a Private network** (Settings → Network & internet →
+  Wi-Fi → your network → Private network). Public networks block incoming
+  connections.
+- **Allow Node.js on Private networks** when Windows Firewall asks.
+
+**Anyone on the same Wi-Fi can use it this way**, including your paid OpenAI
+voices, since there's no sign-in. Only use `dev:phone` on a network you
+trust, and plain `npm run dev` everywhere else.
+
+Audio keeps playing with the screen locked on Android (tested with Chrome).
+On iPhone, Safari may pause it when the screen locks.
+
 ## Troubleshooting
 
 - **"Docker Desktop isn't running"** on the Voices or article page: start
@@ -220,6 +251,17 @@ other GPU-heavy apps (games, many browser tabs) keeps it fast.
 - **Some sites don't work:** pages that build their text with JavaScript
   after loading, or that block automated requests, can't be read yet. Copy
   the text from the page and use **Type or paste your own text** instead.
+- **The phone can't connect** (it loads for a while, then times out): check,
+  in this order, that the phone is on the same Wi-Fi (not mobile data), that
+  Windows has your Wi-Fi set to Private, and that a VPN isn't blocking local
+  devices (NordVPN: turn off *Invisibility on LAN*). If it still times out,
+  Node.js may only be allowed on Public networks, and Windows won't ask
+  again. Add a rule for this port and your own network only, in PowerShell
+  run as administrator:
+
+  ```
+  New-NetFirewallRule -DisplayName "Audifire (home Wi-Fi)" -Direction Inbound -Program "C:\Program Files\nodejs\node.exe" -Protocol TCP -LocalPort 5173 -Profile Private -RemoteAddress LocalSubnet -Action Allow
+  ```
 
 ## A tour of the app
 
@@ -503,6 +545,10 @@ with a fixed random seed, so the voice is the same in chapter 1 and chapter 700.
   the page first draws.
 - **Themes without dark-mode classes.** Each theme redefines Tailwind's color
   variables, so every component changes color with no theme-specific code.
+- **Fits a phone screen.** Everything works down to 320 px wide, with one
+  breakpoint (640 px). Below it, the spacing is tighter and a few controls
+  that are also available elsewhere are hidden, such as Move and Delete on
+  each article (Select does both). Above it, the layout is unchanged.
 - **Popups are native `<dialog>` elements**, which give focus trapping, Esc to
   close and a dimmed background for free. Auto-scroll respects your system's
   reduce-motion setting.

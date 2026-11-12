@@ -137,20 +137,20 @@ export default function PronunciationsTab({ prefill, voice, onChange }) {
         <input
           value={form.word}
           onChange={set("word")}
-          placeholder="Word or name, e.g. Chung Myung"
+          placeholder="Word or name, e.g. Hermione"
           className="w-full rounded border border-gray-300 px-3 py-2"
           required
         />
         <input
           value={form.sounds_like}
           onChange={set("sounds_like")}
-          placeholder="Sounds like, e.g. Chung Myoong"
+          placeholder="Sounds like, e.g. Her-my-oh-nee"
           className="w-full rounded border border-gray-300 px-3 py-2"
           required
         />
         <p className="text-xs text-gray-500">
           Spell it the way it should sound. Hyphens and capitals can help, e.g.
-          "Woo-DAHNG".{" "}
+          "Her-MY-oh-nee".{" "}
           {voice
             ? `Previews use the voice selected in the reader (${voice.name}).`
             : "To hear a preview, open an article: it uses the voice selected there."}

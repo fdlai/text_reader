@@ -117,12 +117,18 @@ export default function Header() {
     <header
       className={`sticky top-0 z-25 border-b border-gray-200 bg-white transition-transform duration-200 focus-within:translate-y-0 ${hidden ? "-translate-y-full" : ""}`}
     >
-      <div className="flex items-center gap-8 px-8 py-3">
-        <Link to="/" className="flex items-center gap-2 text-lg font-semibold">
+      {/* On narrow screens (below Tailwind's sm, 640px) the spacing is
+          tighter and some words are left out, so it fits a phone. */}
+      <div className="flex items-center gap-4 px-4 py-3 sm:gap-8 sm:px-8">
+        <Link
+          to="/"
+          aria-label="Audifire"
+          className="flex items-center gap-2 text-lg font-semibold"
+        >
           <Logo className="size-6" />
-          Audifire
+          <span className="hidden sm:inline">Audifire</span>
         </Link>
-        <nav className="flex gap-5 text-sm">
+        <nav className="flex gap-4 text-sm sm:gap-5">
           <Link
             to="/"
             aria-current={library ? "page" : undefined}
@@ -139,12 +145,13 @@ export default function Header() {
           </Link>
         </nav>
         {/* Where the open article is, linking back there. Cut short with
-            "…" rather than wrapping; hovering shows the whole name. */}
+            "…" rather than wrapping; hovering shows the whole name. Left
+            out on a phone, where there's no room for it. */}
         {reading && breadcrumb && (
           <Link
             to={breadcrumb.to}
             title={`Back to ${breadcrumb.label} (L)`}
-            className="-ml-3 min-w-0 truncate border-l border-gray-300 pl-5 text-sm text-gray-600 hover:text-black"
+            className="-ml-3 hidden min-w-0 truncate border-l sm:block border-gray-300 pl-5 text-sm text-gray-600 hover:text-black"
           >
             ‹ {breadcrumb.label}
           </Link>
@@ -156,6 +163,7 @@ export default function Header() {
         <button
           onClick={generation.toggleQueue}
           title={queueTitle}
+          aria-label={queueTitle}
           className={`ml-auto flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-sm ${
             generation.queueOpen
               ? "border-black text-black"
@@ -169,8 +177,12 @@ export default function Header() {
           ) : (
             <GeneratingIcon />
           )}
-          {queued > 0 && generation.paused ? "Paused" : "Queue"}
-          {queued > 0 && ` · ${queued}`}
+          {/* Just the icon and the number on a phone. */}
+          <span className="hidden sm:inline">
+            {queued > 0 && generation.paused ? "Paused" : "Queue"}
+            {queued > 0 && " ·"}
+          </span>
+          {queued > 0 && queued}
         </button>
         <button
           onClick={togglePanel}

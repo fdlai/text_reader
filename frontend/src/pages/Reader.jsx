@@ -318,8 +318,9 @@ export default function Reader() {
     player.session?.presetId === presetId;
   const activeIndex = sameSession ? player.index : -1;
   // Where "Back to current" and the "Finished" buttons float: above the
-  // player bar, or near the bottom while it's hidden.
-  const floatBottom = player.barHidden ? "bottom-8" : "bottom-28";
+  // player bar, or near the bottom while it's hidden. On a narrow screen
+  // they'd overlap the small player in the corner then, so they sit above it.
+  const floatBottom = player.barHidden ? "bottom-20 sm:bottom-8" : "bottom-28";
 
   // On opening a document, load it into the player paused at the saved
   // position, so the progress bar shows where listening left off. Skipped
@@ -991,6 +992,9 @@ export default function Reader() {
           textAlign: prefs.align,
           // The browser's English hyphenation rules (from <html lang="en">).
           hyphens: prefs.hyphenate ? "auto" : "manual",
+          // A word too long for a line (such as a web address on a phone)
+          // is broken rather than running off the side of the page.
+          overflowWrap: "break-word",
           // See-through tints used by the highlights (see ChunkText).
           "--highlight-word": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.4)`,
           "--highlight-chunk": `rgb(${HIGHLIGHT_COLORS[prefs.highlight_color]} / 0.15)`,

@@ -359,18 +359,20 @@ export default function Collection() {
       {searchable && (
         <>
           {/* Tabs over the list, each with how many it has (within the
-              search), e.g. how many chapters are left to start. */}
+              search), e.g. how many chapters are left to start. On a phone
+              they don't all fit, so the row scrolls sideways (without a
+              scrollbar) rather than wrapping onto a second line. */}
           <div
             role="group"
             aria-label="Show"
-            className="mt-8 flex flex-wrap gap-x-6 border-b border-gray-200"
+            className="mt-8 flex gap-x-4 overflow-x-auto overflow-y-hidden border-b border-gray-200 [scrollbar-width:none] sm:flex-wrap sm:gap-x-6 sm:overflow-visible"
           >
             {Object.entries(PROGRESS).map(([value, label]) => (
               <button
                 key={value}
                 onClick={() => setOption("progress", value, "all")}
                 aria-pressed={progress === value}
-                className={`-mb-px border-b-2 py-2.5 ${
+                className={`-mb-px shrink-0 border-b-2 py-2.5 whitespace-nowrap ${
                   progress === value
                     ? "border-black text-black"
                     : "border-transparent text-gray-500 hover:text-black"
@@ -547,7 +549,9 @@ export default function Collection() {
                   >
                     {details}
                   </Link>
-                  <div className="flex shrink-0 gap-4 text-sm text-gray-500">
+                  {/* Left out on a phone, where they'd leave little room
+                      for the title; Select does the same there. */}
+                  <div className="hidden shrink-0 gap-4 text-sm text-gray-500 sm:flex">
                     <button
                       onClick={() => setMoving([doc.id])}
                       className="hover:text-black"

@@ -57,19 +57,23 @@ export default function ListenBar({
         </div>
       </div>
 
-      <div className="relative ml-auto flex items-center gap-1">
+      {/* On a narrow screen, the next part goes under the status rather
+          than squeezing it onto several lines. */}
+      <div className="relative ml-auto flex flex-wrap items-center justify-end gap-1">
         {status && (
           <div className="px-2.5 text-sm text-gray-600 tabular-nums">
             {status}
           </div>
         )}
-        {next && (
-          <>
-            <span className="mx-0.5 h-6 w-px bg-gray-400/50" />
-            {next}
-          </>
-        )}
-        <MoreMenu items={menu} />
+        <div className="flex items-center gap-1">
+          {next && (
+            <>
+              <span className="mx-0.5 h-6 w-px bg-gray-400/50" />
+              {next}
+            </>
+          )}
+          <MoreMenu items={menu} />
+        </div>
       </div>
     </div>
   );

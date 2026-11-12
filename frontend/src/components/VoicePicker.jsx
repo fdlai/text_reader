@@ -130,10 +130,12 @@ export default function VoicePicker({
                 default
               </span>
             )}
+            {/* Left out on a phone to leave room for the name; "On this
+                article" at the top lists the voices with audio anyway. */}
             {voiceAudio && (
               <span
                 title={`Has audio for this article: ${audioLabel(voiceAudio, totalSections).toLowerCase()}`}
-                className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600"
+                className="hidden rounded bg-gray-100 px-1.5 py-0.5 text-gray-600 sm:inline"
               >
                 audio
               </span>
@@ -159,7 +161,10 @@ export default function VoicePicker({
     .filter(Boolean);
 
   return (
-    <div ref={ref} className="relative">
+    // The list opens under the voice's name. On a phone there isn't room for
+    // it there, so it lines up with the Reader's listen bar instead (the
+    // nearest "relative" around it) and is as wide as the bar's inside.
+    <div ref={ref} className="sm:relative">
       <button
         onClick={toggleOpen}
         aria-expanded={open}
@@ -183,7 +188,7 @@ export default function VoicePicker({
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 z-20 mt-2 w-80 rounded-lg border border-gray-200 bg-white text-base shadow-xl">
+        <div className="absolute top-full left-0 z-20 mt-2 w-[calc(100vw-3rem)] rounded-lg sm:w-80 border border-gray-200 bg-white text-base shadow-xl">
           {audioVoices.length > 0 && (
             <div className="border-b border-gray-200 p-2">
               <p className="px-2 pb-1 text-xs font-medium text-gray-500 uppercase">
