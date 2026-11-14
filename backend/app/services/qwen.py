@@ -109,7 +109,10 @@ async def unavailable_reason() -> str | None:
     """Why Qwen can't generate right now, or None if it can."""
     model_dir = Path(settings.qwen_model_dir)
     if not all((model_dir / name).is_file() for name in (*MODELS.values(), CODEC)):
-        return f"Qwen's model files are missing from backend/{settings.qwen_model_dir}."
+        return (
+            f"Qwen's model files are missing from backend/{settings.qwen_model_dir}. "
+            'See "Qwen voices" in the README.'
+        )
     try:
         # Asks the Docker engine for its version, which fails quickly if
         # Docker Desktop isn't running.
@@ -185,10 +188,15 @@ async def _start_container(mode: str) -> None:
     await _ensure_models([MODELS[mode], CODEC])
 
     logger.info("Starting Qwen (%s model)", mode)
+    # Only reachable from this computer, or in Docker, only from this app's
+    # network.
+    reach = (
+        ["--network", settings.qwen_network]
+        if settings.qwen_network
+        else ["-p", f"127.0.0.1:{settings.qwen_port}:8080"]
+    )
     code, output = await _docker(
-        "run", "-d", "--name", CONTAINER, "--gpus", "all",
-        # Only reachable from this computer.
-        "-p", f"127.0.0.1:{settings.qwen_port}:8080",
+        "run", "-d", "--name", CONTAINER, "--gpus", "all", *reach,
         "-v", f"{VOLUME}:/models:ro",
         "-e", f"MODEL_PATH=/models/{MODELS[mode]}",
         "-e", f"CODEC_PATH=/models/{CODEC}",
@@ -218,6 +226,9 @@ async def _start_container(mode: str) -> None:
 
 
 def _url() -> str:
+    # On a Docker network, containers reach each other by name.
+    if settings.qwen_network:
+        return f"http://{CONTAINER}:8080"
     return f"http://127.0.0.1:{settings.qwen_port}"
 
 

@@ -34,7 +34,7 @@ from app.services.editing import only_removed, plan_edit
 from app.services.extractor import ExtractionError, extract_article
 from app.services.fetcher import FetchError, fetch_html
 from app.services.deletion import delete_documents
-from app.services.generation import audio_counts, remove_files, skip_chunks
+from app.services.generation import audio_counts, audio_path, remove_files, skip_chunks
 from app.services.next_link import without_fragment
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -435,9 +435,9 @@ async def update_text(
     added = len(new_rows)
 
     removed_ids = {c.id for c in removed}
-    audio_paths = (
+    audio_names = (
         await session.scalars(
-            select(AudioFile.file_path).where(AudioFile.chunk_id.in_(removed_ids))
+            select(AudioFile.file_name).where(AudioFile.chunk_id.in_(removed_ids))
         )
     ).all()
     # Their audio goes with them (ON DELETE CASCADE).
@@ -478,7 +478,7 @@ async def update_text(
     await session.commit()
     # Only once the rows are gone, so a failed edit doesn't lose the files.
     await skip_chunks(removed_ids)
-    remove_files(list(audio_paths))
+    remove_files([audio_path(name) for name in audio_names])
     return DocumentTextUpdated(changed=added, first_changed=front if added else None)
 
 

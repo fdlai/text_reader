@@ -62,7 +62,7 @@ async def test_every_chunk_gets_audio_in_order(client, session, engine):
 
     rows = await audio_rows(session, doc)
     assert [r.chunk_id for r in rows] == ids
-    assert all(Path(r.file_path).exists() and r.duration_sec == 12.0 for r in rows)
+    assert all(Path(generation.audio_path(r.file_name)).exists() and r.duration_sec == 12.0 for r in rows)
     assert jobs[(doc, preset.id)] == {"running": False, "error": None}
 
 

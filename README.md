@@ -31,6 +31,8 @@ every day.
 - **Keyboard shortcuts** for everything you do while listening.
 - **Listen from your phone** on the same Wi-Fi, while your computer makes
   the audio.
+- **One command to run it:** `docker compose up`, with Qwen voices as an
+  add-on for computers with an NVIDIA GPU.
 
 ## Contents
 
@@ -45,9 +47,9 @@ every day.
 
 ## Setup
 
-These steps run Audifire directly on your computer. Commands are for Windows
-PowerShell. Where macOS or Linux differ, the difference is noted, and
-`curl.exe` is just `curl` there.
+The easiest way to run Audifire is with Docker: one command starts
+everything. Running it directly on your computer instead (below) is the
+better choice for changing the code.
 
 **Which voices need what:**
 
@@ -59,6 +61,61 @@ PowerShell. Where macOS or Linux differ, the difference is noted, and
 
 Kokoro alone is enough to use everything in the app. Qwen and OpenAI can be
 added at any time.
+
+### Quick start with Docker
+
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+and start it. Then get the code and start the app:
+
+```
+git clone https://github.com/fdlai/text_reader.git
+cd text_reader
+docker compose up --build
+```
+
+The first start takes a few minutes: it builds the app and downloads
+Kokoro's voice model (about 350 MB). Then open **http://localhost:8000**.
+
+This starts the app and its own PostgreSQL database, each in a container.
+Your library (articles, audio, voices, settings) and the downloaded models
+are kept in Docker volumes, so they survive restarts and rebuilds.
+
+- **Run it in the background:** add `-d` (`docker compose up -d`), and stop
+  it with `docker compose down`. Your library is kept.
+- **After changing the code or pulling a new version:**
+  `docker compose up -d --build`. Database changes are applied on start.
+- **OpenAI voices:** put your key in `backend/.env` (see
+  [OpenAI voices](#optional-openai-voices)), then start the app again.
+- **Another port:** if 8000 is taken, create a file named `.env` next to
+  `compose.yaml` containing `AUDIFIRE_PORT=8080`.
+- **Removing everything:** `docker compose down -v` also deletes the
+  volumes, which means **your whole library**.
+
+**Qwen voices in Docker** (NVIDIA GPU, with Docker set up to use it, as
+Docker Desktop on Windows is): add the second file, `compose.qwen.yaml`, to
+each command. The first time, download Qwen's model files (about 2.4 GB):
+
+```
+docker compose -f compose.yaml -f compose.qwen.yaml run --rm app python -m app.download_models qwen
+docker compose -f compose.yaml -f compose.qwen.yaml up -d --build
+```
+
+To skip typing both files every time, put this in the `.env` file in the project root next to
+`compose.yaml` (on macOS or Linux, use `:` instead of `;`):
+
+```
+COMPOSE_FILE=compose.yaml;compose.qwen.yaml
+```
+
+Qwen is an add-on because it gives the app control of Docker on your
+computer: the app starts Qwen's container only while making Qwen audio, and
+stops it after 5 idle minutes, so it doesn't hold your GPU. That's fine for
+an app you run yourself, but not something to turn on without needing it.
+
+### Without Docker
+
+These steps run Audifire directly on your computer. Commands are for Windows
+PowerShell. Where macOS or Linux differ, the difference is noted.
 
 ### 1. Install the prerequisites
 
@@ -107,13 +164,11 @@ copy .env.example .env          # macOS/Linux: cp .env.example .env
 `.env` is git-ignored, so your password (and API key, if you add one) stays
 on your computer.
 
-Download the two Kokoro voice model files (about 350 MB) into
+Download Kokoro's two voice model files (about 350 MB) into
 `backend/models/kokoro/`:
 
 ```
-mkdir models\kokoro
-curl.exe -L -o models/kokoro/kokoro-v1.0.onnx https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
-curl.exe -L -o models/kokoro/voices-v1.0.bin https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+python -m app.download_models
 ```
 
 Create the database tables, then start the backend:
@@ -184,14 +239,15 @@ Qwen voices sound great and cost nothing, but they need:
 - **Docker Desktop**, running. On Windows it uses WSL 2, which supports the
   GPU.
 
-Download the three model files (about 2.4 GB) into `backend/models/qwen/`:
+Download the three model files (about 2.4 GB) into `backend/models/qwen/`,
+from the `backend` folder with the virtual environment active:
 
 ```
-mkdir models\qwen
-curl.exe -L -o models/qwen/qwen-talker-1.7b-voicedesign-Q8_0.gguf https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/qwen-talker-1.7b-voicedesign-Q8_0.gguf
-curl.exe -L -o models/qwen/qwen-talker-1.7b-base-Q8_0.gguf https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/qwen-talker-1.7b-base-Q8_0.gguf
-curl.exe -L -o models/qwen/qwen-tokenizer-12hz-Q8_0.gguf https://huggingface.co/Serveurperso/Qwen3-TTS-GGUF/resolve/main/qwen-tokenizer-12hz-Q8_0.gguf
+python -m app.download_models qwen
 ```
+
+(With Docker, see [Quick start with Docker](#quick-start-with-docker)
+instead.)
 
 There's nothing else to install. The first time you use Qwen, the app
 downloads the Qwen Docker image (about 2.6 GB) and copies the models into
@@ -210,6 +266,15 @@ other GPU-heavy apps (games, many browser tabs) keeps it fast.
 
 Your computer does all the work, so any phone on the same Wi-Fi can use the
 app in its browser: listen in the kitchen while your PC makes the audio.
+
+**With Docker:** put `AUDIFIRE_LISTEN=0.0.0.0` in the `.env` file next to
+`compose.yaml` and start it again. On your phone, open your computer's
+address on the Wi-Fi (shown by `ipconfig` on Windows, as "IPv4 Address")
+with `:8000` after it, such as `http://192.168.1.23:8000`. The Windows
+settings and the warning below apply too; the firewall asks about Docker
+Desktop rather than Node.js.
+
+**Without Docker:**
 
 1. Start the frontend with `npm run dev:phone` instead of `npm run dev`.
    Besides the usual `Local:` address it prints a `Network:` one, such as
@@ -752,13 +817,20 @@ Docker, which needs model files and a GPU and is checked by hand.
 - **Reading web pages:** httpx, trafilatura and lxml
 - **Tests:** pytest with pytest-asyncio; Vitest with React Testing Library
   and jsdom
+- **Running it:** Docker Compose (the app and PostgreSQL), or directly with
+  uvicorn and Vite
 
 ## Project layout
 
 ```
+compose.yaml          docker compose up: the app and its database
+compose.qwen.yaml     the Qwen add-on for Docker
+Dockerfile            builds the frontend, then the backend that serves it
 backend/
+  docker-start.sh     what the app's container runs: models, migrations, server
   app/
     main.py           app startup, routes
+    download_models.py  downloads Kokoro's (and Qwen's) model files
     models.py         database tables
     schemas.py        request and response shapes (Pydantic)
     routers/          API endpoints (documents, collections, audio,

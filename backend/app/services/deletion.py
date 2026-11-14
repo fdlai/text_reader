@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AudioFile, Chunk, Document
 from app.services.covers import cover_path
-from app.services.generation import cancel_generation, remove_files
+from app.services.generation import audio_path, cancel_generation, remove_files
 
 
 async def delete_documents(session: AsyncSession, document_ids: list[int]) -> None:
@@ -18,9 +18,9 @@ async def delete_documents(session: AsyncSession, document_ids: list[int]) -> No
     # Otherwise a running job would keep generating audio for deleted chunks.
     for document_id in document_ids:
         await cancel_generation(document_id=document_id)
-    audio_paths = (
+    audio_names = (
         await session.scalars(
-            select(AudioFile.file_path)
+            select(AudioFile.file_name)
             .join(Chunk, Chunk.id == AudioFile.chunk_id)
             .where(Chunk.document_id.in_(document_ids))
         )
@@ -28,4 +28,9 @@ async def delete_documents(session: AsyncSession, document_ids: list[int]) -> No
     await session.execute(delete(Document).where(Document.id.in_(document_ids)))
     await session.commit()
     # Only once the rows are gone, so a failed delete doesn't lose the files.
-    remove_files([*audio_paths, *(str(cover_path(i)) for i in document_ids)])
+    remove_files(
+        [
+            *(audio_path(name) for name in audio_names),
+            *(str(cover_path(i)) for i in document_ids),
+        ]
+    )

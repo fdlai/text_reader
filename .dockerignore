@@ -1,0 +1,16 @@
+# Left out of what the Dockerfile can copy: installed packages are
+# reinstalled inside the image, and data, models and secrets stay on this
+# computer (the container keeps its own in volumes).
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.coverage
+backend/models
+backend/storage
+backend/tests
+backend/.env
+frontend/dist
+frontend/coverage
+docs
+.git

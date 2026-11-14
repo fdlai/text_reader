@@ -57,6 +57,11 @@ def remove_files(paths: list[str]) -> None:
         Path(p).unlink(missing_ok=True)
 
 
+def audio_path(file_name: str) -> str:
+    """Where an audio file is, from the name saved with it (AudioFile.file_name)."""
+    return str(Path(settings.audio_dir) / file_name)
+
+
 async def audio_counts(session: AsyncSession, document_id: int) -> dict[int, int]:
     """How many of a document's chunks have audio, by voice preset id. Only
     a preset's current model counts, as elsewhere."""
@@ -145,7 +150,7 @@ async def _next_chunk(document_id: int, preset_id: int) -> bool:
                     chunk_id=chunk.id,
                     voice_preset_id=preset_id,
                     model=model,
-                    file_path=str(path),
+                    file_name=path.name,
                     duration_sec=duration,
                     word_times=word_times,
                     pronunciations=used,
@@ -326,10 +331,10 @@ async def delete_preset_audio(session: AsyncSession, preset_id: int) -> list[str
     removes (remove_files) only once it has committed, so a failed commit,
     which brings the rows back, doesn't leave them without their files."""
     await cancel_generation(preset_id=preset_id)
-    paths = (
+    names = (
         await session.scalars(
-            select(AudioFile.file_path).where(AudioFile.voice_preset_id == preset_id)
+            select(AudioFile.file_name).where(AudioFile.voice_preset_id == preset_id)
         )
     ).all()
     await session.execute(delete(AudioFile).where(AudioFile.voice_preset_id == preset_id))
-    return list(paths)
+    return [audio_path(name) for name in names]

@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import SessionLocal
 from app.models import AudioFile, Chunk
-from app.services.generation import word_times_for
+from app.services.generation import audio_path, word_times_for
 
 
 async def main(document_ids: list[int]) -> None:
@@ -29,14 +29,14 @@ async def main(document_ids: list[int]) -> None:
         rows = (await session.scalars(query)).all()
         print(f"{len(rows)} audio files need word timings.")
         for i, audio in enumerate(rows, start=1):
-            if not Path(audio.file_path).is_file():
-                print(f"[{i}/{len(rows)}] missing file, skipped: {audio.file_path}")
+            if not Path(audio_path(audio.file_name)).is_file():
+                print(f"[{i}/{len(rows)}] missing file, skipped: {audio_path(audio.file_name)}")
                 continue
             audio.word_times = await word_times_for(
-                Path(audio.file_path), audio.chunk.text, audio.duration_sec or 0
+                Path(audio_path(audio.file_name)), audio.chunk.text, audio.duration_sec or 0
             )
             await session.commit()
-            print(f"[{i}/{len(rows)}] {audio.file_path}")
+            print(f"[{i}/{len(rows)}] {audio_path(audio.file_name)}")
 
 
 if __name__ == "__main__":

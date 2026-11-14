@@ -21,6 +21,7 @@ from app.schemas_audio import (
 from app.services import qwen
 from app.services.generation import (
     audio_counts,
+    audio_path,
     cancel_generation,
     is_paused,
     jobs,
@@ -252,7 +253,7 @@ async def regenerate_outdated(
         await session.delete(a)
     document.voice_preset_id = preset.id  # it opens with this voice next time
     await session.commit()
-    remove_files([a.file_path for a in outdated])
+    remove_files([audio_path(a.file_name) for a in outdated])
 
     start_generation(document_id, preset.id)
     return await _build_status(session, document_id, preset)
@@ -283,7 +284,7 @@ async def delete_audio(
     if document.voice_preset_id == preset.id:
         document.voice_preset_id = None
     await session.commit()
-    remove_files([a.file_path for a in audio])
+    remove_files([audio_path(a.file_name) for a in audio])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -325,6 +326,6 @@ async def chunk_audio(
             AudioFile.model == model_name(preset.engine),
         )
     )
-    if audio is None or not Path(audio.file_path).is_file():
+    if audio is None or not Path(audio_path(audio.file_name)).is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Audio not generated yet.")
-    return FileResponse(audio.file_path, media_type="audio/mpeg")
+    return FileResponse(audio_path(audio.file_name), media_type="audio/mpeg")

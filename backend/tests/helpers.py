@@ -66,7 +66,7 @@ async def add_audio(
             chunk_id=chunk_id,
             voice_preset_id=preset_id,
             model=model_name(engine),
-            file_path=str(path),
+            file_name=path.name,
             duration_sec=duration,
             pronunciations=pronunciations or {},
             paragraph_pause=None if engine == "openai" else DEFAULT_PAUSE,

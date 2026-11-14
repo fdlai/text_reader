@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,3 +75,25 @@ app.include_router(preferences.router)
 async def health(session: AsyncSession = Depends(get_session)):
     await session.execute(text("SELECT 1"))
     return {"status": "ok"}
+
+
+class FrontendFiles(StaticFiles):
+    """The built frontend's files. Any other address (e.g. /documents/3) is
+    a page of the app, so it gets index.html, and the frontend's router
+    shows that page. Addresses under /api never do: a wrong one is a 404."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as e:
+            # The address as requested (path is in the system's own form,
+            # e.g. with backslashes on Windows).
+            address = scope["path"]
+            if e.status_code != 404 or address == "/api" or address.startswith("/api/"):
+                raise
+            return await super().get_response("index.html", scope)
+
+
+# After the API routes, so they're matched first.
+if settings.frontend_dir:
+    app.mount("/", FrontendFiles(directory=settings.frontend_dir, html=True))

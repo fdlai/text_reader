@@ -123,7 +123,9 @@ class AudioFile(Base):
     chunk_id: Mapped[int] = mapped_column(ForeignKey("chunks.id", ondelete="CASCADE"))
     voice_preset_id: Mapped[int] = mapped_column(ForeignKey("voice_presets.id"))
     model: Mapped[str] = mapped_column(String(50))
-    file_path: Mapped[str] = mapped_column(Text)
+    # The file's name in the audio folder (settings.audio_dir); see
+    # generation.audio_path.
+    file_name: Mapped[str] = mapped_column(Text)
     duration_sec: Mapped[float | None] = mapped_column(Float)
     # Start time in seconds of each word of the chunk's text, in the order
     # given by chunker.paragraph_words(), or None if they couldn't be worked out.

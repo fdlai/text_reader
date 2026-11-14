@@ -1,0 +1,60 @@
+# The whole app with one command:
+#
+#   docker compose up --build
+#
+# then open http://localhost:8000. Kokoro voices work on any computer, and
+# OpenAI voices once OPENAI_API_KEY is in backend/.env. For Qwen voices
+# (NVIDIA GPU), see compose.qwen.yaml.
+name: audifire
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      # Only reachable from the app's container (no port is opened on this
+      # computer), so a fixed password is fine.
+      POSTGRES_USER: audifire
+      POSTGRES_PASSWORD: audifire
+      POSTGRES_DB: audifire
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # The app waits until the database answers.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audifire"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    # The OpenAI key, if any, from the same file as without Docker.
+    env_file:
+      - path: backend/.env
+        required: false
+    environment:
+      # Overrides the one in backend/.env, which is for running without
+      # Docker.
+      DATABASE_URL: postgresql+asyncpg://audifire:audifire@db:5432/audifire
+    ports:
+      # This computer only, at port 8000. To use it from a phone on the same
+      # Wi-Fi, put AUDIFIRE_LISTEN=0.0.0.0 in a .env file next to this one;
+      # AUDIFIRE_PORT changes the port, if 8000 is taken.
+      - "${AUDIFIRE_LISTEN:-127.0.0.1}:${AUDIFIRE_PORT:-8000}:8000"
+    volumes:
+      # Audio, covers and voice samples, and the downloaded models. Kept
+      # when the app is rebuilt or the containers are removed.
+      - storage:/app/storage
+      - models:/app/models
+
+volumes:
+  db-data:
+  storage:
+  models:
+
+networks:
+  default:
+    # Named, so Qwen's container can join it (see compose.qwen.yaml).
+    name: audifire

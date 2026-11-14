@@ -1,0 +1,28 @@
+# Adds Qwen voices to compose.yaml, for computers with an NVIDIA GPU
+# (4 GB or more) and Docker set up to use it:
+#
+#   docker compose -f compose.yaml -f compose.qwen.yaml up --build
+#
+# The first time, download Qwen's model files (about 2.4 GB) with:
+#
+#   docker compose -f compose.yaml -f compose.qwen.yaml run --rm app python -m app.download_models qwen
+#
+# The app starts Qwen's container only while making Qwen audio, and stops it
+# after 5 idle minutes, as it does without Docker.
+services:
+  app:
+    environment:
+      # Qwen's container joins the app's network, where the app reaches it.
+      QWEN_NETWORK: audifire
+    volumes:
+      # Lets the app start and stop Qwen's container. This gives it control
+      # of Docker on this computer, which is why it's an add-on rather than
+      # part of compose.yaml.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Qwen's models, in the volume its container reads them from (the
+      # same one the app uses without Docker).
+      - qwen-models:/app/models/qwen
+
+volumes:
+  qwen-models:
+    name: text-reader-qwen-models
