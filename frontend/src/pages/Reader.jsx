@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   createDocument,
@@ -81,6 +87,9 @@ const MAX_ABOVE = 0.1;
 const STEP_HIGH = 0.25;
 const STEP_LOW = 0.55;
 const STEP_AT = 0.4;
+
+// The selection popup stays at least this many pixels from the screen's edge.
+const POPUP_MARGIN = 8;
 
 // Where text can be seen, as y coordinates relative to the window: below
 // the header (when it's showing) and above the player bar, or above its
@@ -437,7 +446,11 @@ export default function Reader() {
   // "Play from here": when a selection is finished inside the text, find its
   // first word and show a button above the selection.
   useEffect(() => {
-    function handleSelectionEnd() {
+    function handleSelectionEnd(e) {
+      // Pressing a button doesn't finish a selection, and in Chrome it
+      // doesn't clear one either. Without this, the press on "Back to
+      // current" would bring the popup back and stop following again.
+      if (e.target.closest?.("button")) return;
       // Wait a moment for the browser to finish updating the selection.
       setTimeout(() => {
         const selection = window.getSelection();
@@ -473,6 +486,24 @@ export default function Reader() {
       document.removeEventListener("selectionchange", handleSelectionChange);
     };
   }, []);
+
+  // The popup is centred above the selection, so near the edge of the screen
+  // half of it would stick out. Measured before the browser paints, so it
+  // never visibly jumps. Its width changes when "Play from here" appears.
+  const popupRef = useRef(null);
+  const popupHasPlay =
+    selectionPopup !== null && status?.chunks[selectionPopup.chunkIndex]?.ready;
+  useLayoutEffect(() => {
+    const popup = popupRef.current;
+    if (!popup) return;
+    // Measured where it would be without a shift.
+    popup.style.marginLeft = "";
+    const rect = popup.getBoundingClientRect();
+    const right = document.documentElement.clientWidth - POPUP_MARGIN;
+    const shift =
+      Math.max(POPUP_MARGIN - rect.left, 0) - Math.max(rect.right - right, 0);
+    popup.style.marginLeft = `${shift}px`;
+  }, [selectionPopup, popupHasPlay]);
 
   const { timeline, offset, playing } = player;
 
@@ -1031,6 +1062,7 @@ export default function Reader() {
           // Clicking would normally clear the selection before the click
           // registers; preventing the mousedown keeps it.
           onMouseDown={(e) => e.preventDefault()}
+          ref={popupRef}
           style={{ top: selectionPopup.top, left: selectionPopup.left }}
           className="absolute z-10 -mt-2 flex -translate-x-1/2 -translate-y-full gap-2"
         >
@@ -1062,13 +1094,15 @@ export default function Reader() {
         />
       )}
 
-      {/* Floats above the player bar (or near the bottom while it's hidden).
+      {/* Floats above the player bar (or near the bottom while it's hidden),
+          and above the selection popup (which moves away on scroll) but
+          below the menus.
           Once finished, "Back to current"
           would only lead to the last word, so Listen again takes its place,
           visible wherever the page is scrolled. */}
       {finished && isReady(0) ? (
         <div
-          className={`fixed left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black py-1.5 pr-1.5 pl-4 text-sm text-white shadow-lg ${floatBottom}`}
+          className={`fixed left-1/2 z-15 flex -translate-x-1/2 items-center gap-3 rounded-full bg-black py-1.5 pr-1.5 pl-4 text-sm text-white shadow-lg ${floatBottom}`}
         >
           ✓ Finished
           {/* With a next part, that's the main button and this one is quieter. */}
@@ -1093,7 +1127,7 @@ export default function Reader() {
         !following && (
           <button
             onClick={backToCurrent}
-            className={`fixed left-1/2 -translate-x-1/2 rounded-full bg-black px-4 py-2 text-sm text-white shadow-lg ${floatBottom}`}
+            className={`fixed left-1/2 z-15 -translate-x-1/2 rounded-full bg-black px-4 py-2 text-sm text-white shadow-lg ${floatBottom}`}
           >
             Back to current
           </button>

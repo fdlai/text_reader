@@ -188,6 +188,90 @@ it("opens the editor from the ⋯ menu", async () => {
   );
 });
 
+// Selects a word, as if by mouse, on a 320 px wide screen where the popup
+// (200 px wide) would start at `popupLeft` before being moved. jsdom has no
+// layout, so the sizes are made up: the popup's moves with its margin, as
+// in a browser.
+async function selectWordWithPopupAt(popupLeft) {
+  Object.defineProperty(document.documentElement, "clientWidth", {
+    value: 320,
+    configurable: true,
+  });
+  Range.prototype.getBoundingClientRect = () => new DOMRect(0, 300, 40, 20);
+  const realRect = Element.prototype.getBoundingClientRect;
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+    function () {
+      if (this.lastElementChild?.textContent !== "Fix pronunciation") {
+        return realRect.call(this);
+      }
+      const left = popupLeft + (parseFloat(this.style.marginLeft) || 0);
+      return new DOMRect(left, 260, 200, 32);
+    },
+  );
+  await openArticleWithAudio();
+  const range = document.createRange();
+  range.selectNodeContents(screen.getByText("story"));
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(range);
+  fireEvent.mouseUp(document);
+  const fix = await screen.findByRole("button", { name: "Fix pronunciation" });
+  return fix.parentElement;
+}
+
+function restoreLayout() {
+  delete document.documentElement.clientWidth;
+  delete Range.prototype.getBoundingClientRect;
+  vi.restoreAllMocks();
+}
+
+it("keeps the selection popup on screen near the left edge", async () => {
+  try {
+    const popup = await selectWordWithPopupAt(-60);
+    // From -60 to 8 px: the margin from the screen's edge.
+    expect(popup.style.marginLeft).toBe("68px");
+  } finally {
+    restoreLayout();
+  }
+});
+
+it("keeps the selection popup on screen near the right edge", async () => {
+  try {
+    const popup = await selectWordWithPopupAt(200);
+    // Its right side, at 400 px, moves to 312 px.
+    expect(popup.style.marginLeft).toBe("-88px");
+  } finally {
+    restoreLayout();
+  }
+});
+
+it("leaves the selection popup alone when it fits", async () => {
+  try {
+    const popup = await selectWordWithPopupAt(60);
+    expect(popup.style.marginLeft).toBe("0px");
+  } finally {
+    restoreLayout();
+  }
+});
+
+it("goes back to the current word while text is selected", async () => {
+  try {
+    // Selecting text stops following, which offers "Back to current".
+    await selectWordWithPopupAt(60);
+    const back = screen.getByRole("button", { name: "Back to current" });
+    // The press doesn't clear the selection (as in Chrome), and its mouseup
+    // reaches the page too.
+    fireEvent.mouseUp(back);
+    fireEvent.click(back);
+    // Long enough for the selection handler's wait.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole("button", { name: "Back to current" })).toBe(
+      null,
+    );
+  } finally {
+    restoreLayout();
+  }
+});
+
 it("shows the voice and lists the others in the voice menu", async () => {
   await openArticle();
   const voiceButton = await screen.findByRole("button", { name: /Michael/ });
